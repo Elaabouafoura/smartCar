@@ -1,2 +1,0 @@
-dtc_code,description,severity,component_category,status,mil_active,freeze_frame,timestamp
-P4512,Sample description 1,low,Transmission,confirmed,false,"{""engine_rpm"":2500,""vehicle_speed"":90}",2026-03-03T09:25:10.280363
