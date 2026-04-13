@@ -7,6 +7,8 @@ import { AuthGuard } from '@nestjs/passport/dist/auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { UserRole } from './entities/user.entity';
 
 @Controller('users')
 export class UsersController {
@@ -53,4 +55,24 @@ export class UsersController {
       url: `http://localhost:3000/uploads/avatars/${file.filename}`,
     };
   }
+
+
+
+@Patch(':id/role')
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+
+updateRole(
+  @Param('id') id: string,
+  @Body() body: UpdateUserRoleDto,
+) {
+  return this.usersService.updateRole(id, body.role);
+}
+
+
+@Patch('bootstrap/make-me-admin/:email')
+async makeMeAdmin(@Param('email') email: string) {
+  return this.usersService.makeAdminByEmail(email);
+}
+
+
 }

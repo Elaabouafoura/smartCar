@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { User } from 'src/users/entities/user.entity';
 import { SensorReading } from 'src/sensor-reading/entities/sensor-reading.entity';
+import { Upload } from 'src/upload/entities/upload.entity';
 
 @Entity('vehicle')
 export class Vehicle {
@@ -61,7 +62,10 @@ export class Vehicle {
   updatedAt!: Date;
   
    @OneToMany(() => SensorReading, (reading) => reading.vehicle)
-  sensorReadings!: SensorReading[];
+    sensorReadings!: SensorReading[];
     dtcEntries: any;
     maintenanceRecords: any;
+
+    @OneToMany(() => Upload, (upload) => upload.vehicle)
+    uploads!: Upload[];
 }

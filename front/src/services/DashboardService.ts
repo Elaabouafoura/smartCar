@@ -193,7 +193,6 @@ export async function apiUploadVehicleMaintenance(
 
 
 export type UploadItem = {
-    [x: string]: number | null | undefined
     id: string
     filename: string
     status: 'processing' | 'success' | 'failed'
@@ -240,6 +239,20 @@ export async function apiDeleteUpload<T>(id: string) {
     })
 }
 
+
+
+export async function apiGetUploadsByVehicle<T, U extends Record<string, unknown>>(
+    params: U,
+) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/uploads/vehicle/${params.vehicleId}`,
+        method: 'get',
+        params: {
+            page: params.page,
+            limit: params.limit,
+        },
+    })
+}
 
 
 

@@ -10,12 +10,14 @@ import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import Button from '@/components/ui/Button'
+import Select from '@/components/ui/Select'
 import { TbChecks, TbTrash, TbX } from 'react-icons/tb'
 import {
     apiGetUsers,
     type UserListItem,
     apiDeleteUsers,
 } from '@/services/DashboardService'
+import ApiService from '@/services/ApiService'
 import type {
     ColumnDef,
     OnSortParam,
@@ -25,6 +27,25 @@ import type { TableQueries } from '@/@types/common'
 import UsersTableTools from './UsersTableTools'
 
 type GetUsersResponse = UserListItem[]
+type RoleType = 'admin' | 'user'
+
+type RoleOption = {
+    value: RoleType
+    label: string
+}
+
+const roleOptions: RoleOption[] = [
+    { value: 'admin', label: 'Admin' },
+    { value: 'user', label: 'User' },
+]
+
+const apiUpdateUserRole = async (userId: string, role: RoleType) => {
+    return ApiService.fetchDataWithAxios({
+        url: `/users/${userId}/role`,
+        method: 'patch',
+        data: { role },
+    })
+}
 
 const UsersDashboard = () => {
     const [tableData, setTableData] = useState<TableQueries>({
@@ -42,6 +63,9 @@ const UsersDashboard = () => {
     const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false)
     const [localUsers, setLocalUsers] = useState<UserListItem[] | null>(null)
     const [deleteLoading, setDeleteLoading] = useState(false)
+    const [roleUpdatingUserId, setRoleUpdatingUserId] = useState<string | null>(
+        null,
+    )
 
     const { data, isLoading } = useSWR(
         ['/users'],
@@ -258,6 +282,49 @@ const UsersDashboard = () => {
         }
     }
 
+    const handleRoleChange = async (
+        userId: string,
+        nextRole: RoleType,
+        currentRole: string,
+    ) => {
+        if (nextRole === currentRole) return
+
+        try {
+            setRoleUpdatingUserId(userId)
+
+            await apiUpdateUserRole(userId, nextRole)
+
+            const newUsers = users.map((user) =>
+                user.id === userId ? { ...user, role: nextRole } : user,
+            )
+
+            setLocalUsers(newUsers)
+
+            setSelectedUsers((prev) =>
+                prev.map((user) =>
+                    user.id === userId ? { ...user, role: nextRole } : user,
+                ),
+            )
+
+            toast.push(
+                <Notification type="success">
+                    User role updated successfully
+                </Notification>,
+                { placement: 'top-center' },
+            )
+        } catch (error) {
+            console.error('Update role error:', error)
+            toast.push(
+                <Notification type="danger">
+                    Failed to update user role
+                </Notification>,
+                { placement: 'top-center' },
+            )
+        } finally {
+            setRoleUpdatingUserId(null)
+        }
+    }
+
     const columns: ColumnDef<UserListItem>[] = useMemo(
         () => [
             {
@@ -291,15 +358,24 @@ const UsersDashboard = () => {
                     const user = props.row.original
 
                     return (
-                        <span
-                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                                user.role === 'admin'
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
-                            }`}
-                        >
-                            {user.role}
-                        </span>
+                        <div className="min-w-[150px]">
+                            <Select<RoleOption>
+                                size="sm"
+                                isDisabled={roleUpdatingUserId === user.id}
+                                value={roleOptions.find(
+                                    (option) => option.value === user.role,
+                                )}
+                                options={roleOptions}
+                                onChange={(option) => {
+                                    if (!option) return
+                                    handleRoleChange(
+                                        user.id,
+                                        option.value,
+                                        user.role,
+                                    )
+                                }}
+                            />
+                        </div>
                     )
                 },
             },
@@ -313,7 +389,7 @@ const UsersDashboard = () => {
                 },
             },
         ],
-        [],
+        [roleUpdatingUserId, users],
     )
 
     return (

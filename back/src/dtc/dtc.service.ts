@@ -265,6 +265,7 @@ export class DtcService {
               : r.freeze_frame,
           timestamp: new Date(r.timestamp),
           vehicle,
+          upload,
         });
       });
 

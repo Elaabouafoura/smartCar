@@ -17,8 +17,8 @@ export class MaintenanceRecord {
   })
   vehicle!: Vehicle;
 
-  @ManyToOne(() => Upload, { nullable: true })
-  upload!: Upload;
+ @ManyToOne(() => Upload, { nullable: true, onDelete: 'SET NULL' })
+ upload?: Upload;
 
   @Column({ type: 'date' })
   service_date!: Date;

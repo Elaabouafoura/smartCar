@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Repository } from 'typeorm/repository/Repository.js';
@@ -70,6 +70,48 @@ return savedUser;
 
    return this.findById(id);
  }
+
+  async updateRole(id: string, role: UserRole) {
+    const user = await this.repo.findOne({
+      where: { id },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.role === role) {
+      return {
+        message: 'Role unchanged',
+        user,
+      };
+    }
+
+    user.role = role;
+    const updatedUser = await this.repo.save(user);
+
+    return {
+      message: 'User role updated successfully',
+      user: updatedUser,
+    };
+  }
+
+
+  async makeAdminByEmail(email: string) {
+  const user = await this.repo.findOne({ where: { email } });
+
+  if (!user) {
+    throw new NotFoundException('User not found');
+  }
+
+  user.role = UserRole.ADMIN;
+  await this.repo.save(user);
+
+  return {
+    message: 'User promoted to admin',
+    user,
+  };
+}
 
 
 

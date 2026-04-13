@@ -7,6 +7,7 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 import { Vehicle } from 'src/vehicle/entities/vehicle.entity';
+import { Upload } from 'src/upload/entities/upload.entity';
 
 export enum DtcSeverity {
   LOW = 'low',
@@ -64,4 +65,7 @@ export class DtcEntry {
 
   @CreateDateColumn()
   created_at!: Date;
+
+  @ManyToOne(() => Upload, { nullable: true, onDelete: 'CASCADE' })
+  upload?: Upload;
 }

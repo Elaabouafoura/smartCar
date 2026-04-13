@@ -10,7 +10,7 @@ import DataTable from '@/components/shared/DataTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Dialog from '@/components/ui/Dialog'
 import classNames from '@/utils/classNames'
-import { TbEye, TbTrash, TbCar } from 'react-icons/tb'
+import { TbEye, TbTrash, TbCar, TbDownload } from 'react-icons/tb'
 import type {
     OnSortParam,
     ColumnDef,
@@ -22,19 +22,70 @@ import {
     apiGetAdminVehicles,
     type VehicleListItem,
 } from '@/services/DashboardService'
+import ApiService from '@/services/ApiService'
 import Card from '@/components/ui/Card/Card'
+import Button from '@/components/ui/Button'
 import VehicleListTableTools from './VehicleListTableTools'
 
 type GetVehiclesResponse = VehicleListItem[]
 
-const VehicleColumn = ({ row }: { row: VehicleListItem }) => {
+type UploadItem = {
+    id: string
+    filename: string
+    status: 'processing' | 'success' | 'failed'
+    row_count?: number
+    created_at?: string
+    downloadUrl?: string
+}
+
+type UploadPaginatedResponse = {
+    data: UploadItem[]
+    total: number
+    page: number
+    totalPages: number
+}
+
+const apiGetUploadsByVehicle = async (
+    vehicleId: string,
+    page = 1,
+    limit = 20,
+) => {
+    return ApiService.fetchDataWithAxios<UploadPaginatedResponse>({
+        url: `/uploads/vehicle/${vehicleId}`,
+        method: 'get',
+        params: {
+            page,
+            limit,
+        },
+    })
+}
+
+const VehicleColumn = ({
+    row,
+    onPhotoClick,
+}: {
+    row: VehicleListItem
+    onPhotoClick: (vehicle: VehicleListItem) => void
+}) => {
     return (
         <div className="flex items-center gap-2">
-            <Avatar
-                shape="round"
-                size={60}
-                {...(row.photoUrl ? { src: row.photoUrl } : { icon: <TbCar /> })}
-            />
+            <button
+                type="button"
+                className="rounded-full"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    onPhotoClick(row)
+                }}
+                title="Show uploaded files"
+            >
+                <Avatar
+                    shape="round"
+                    size={60}
+                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    {...(row.photoUrl ? { src: row.photoUrl } : { icon: <TbCar /> })}
+                />
+            </button>
+
             <div>
                 <div className="font-bold heading-text mb-1">
                     {row.make} {row.model}
@@ -106,6 +157,10 @@ const VehicleDashboard = () => {
     const [selectedDetailVehicle, setSelectedDetailVehicle] =
         useState<VehicleListItem | null>(null)
 
+    const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+    const [uploadVehicle, setUploadVehicle] =
+        useState<VehicleListItem | null>(null)
+
     const [tableData, setTableData] = useState<TableQueries>({
         pageIndex: 1,
         pageSize: 10,
@@ -121,6 +176,16 @@ const VehicleDashboard = () => {
     const { data, isLoading, mutate } = useSWR(
         ['/vehicles/admin/all'],
         () => apiGetAdminVehicles<GetVehiclesResponse>(),
+        {
+            revalidateOnFocus: false,
+            revalidateIfStale: false,
+            revalidateOnReconnect: false,
+        },
+    )
+
+    const { data: uploadData, isLoading: uploadsLoading } = useSWR(
+        uploadVehicle ? ['/uploads/vehicle', uploadVehicle.id] : null,
+        () => apiGetUploadsByVehicle(uploadVehicle!.id, 1, 20),
         {
             revalidateOnFocus: false,
             revalidateIfStale: false,
@@ -209,6 +274,58 @@ const VehicleDashboard = () => {
         setSelectedDetailVehicle(null)
     }
 
+    const handleOpenUploads = (vehicle: VehicleListItem) => {
+        setUploadVehicle(vehicle)
+        setUploadDialogOpen(true)
+    }
+
+    const handleCloseUploads = () => {
+        setUploadDialogOpen(false)
+        setUploadVehicle(null)
+    }
+
+    const handleDownload = async (id: string, filename: string) => {
+        try {
+            const token = localStorage.getItem('token')
+
+            const response = await fetch(
+                `http://localhost:3000/api/v1/uploads/${id}/download`,
+                {
+                    method: 'GET',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                },
+            )
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                console.error('download error body =', errorText)
+                throw new Error(`Failed to download file (${response.status})`)
+            }
+
+            const blob = await response.blob()
+            const url = window.URL.createObjectURL(blob)
+
+            const link = document.createElement('a')
+            link.href = url
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+
+            window.URL.revokeObjectURL(url)
+        } catch (error) {
+            console.error('handleDownload error:', error)
+            toast.push(
+                <Notification type="danger">
+                    Failed to download upload
+                </Notification>,
+                { placement: 'top-center' },
+            )
+        }
+    }
+
     const handleConfirmDelete = async () => {
         if (!toDeleteId) return
 
@@ -227,6 +344,10 @@ const VehicleDashboard = () => {
 
             if (selectedDetailVehicle?.id === toDeleteId) {
                 handleCloseDetail()
+            }
+
+            if (uploadVehicle?.id === toDeleteId) {
+                handleCloseUploads()
             }
 
             await mutate(newVehicleList, false)
@@ -285,7 +406,12 @@ const VehicleDashboard = () => {
                 accessorKey: 'make',
                 cell: (props) => {
                     const row = props.row.original
-                    return <VehicleColumn row={row} />
+                    return (
+                        <VehicleColumn
+                            row={row}
+                            onPhotoClick={handleOpenUploads}
+                        />
+                    )
                 },
             },
             {
@@ -359,7 +485,7 @@ const VehicleDashboard = () => {
                 ),
             },
         ],
-        [],
+        [selectedVehicle],
     )
 
     const handleSetTableData = (data: TableQueries) => {
@@ -453,12 +579,20 @@ const VehicleDashboard = () => {
                 {selectedDetailVehicle && (
                     <div className="flex flex-col gap-4">
                         <div className="flex items-center gap-4">
-                            <Avatar
-                                size={70}
-                                {...(selectedDetailVehicle.photoUrl
-                                    ? { src: selectedDetailVehicle.photoUrl }
-                                    : { icon: <TbCar /> })}
-                            />
+                            <button
+                                type="button"
+                                className="rounded-full"
+                                onClick={() => handleOpenUploads(selectedDetailVehicle)}
+                                title="Show uploaded files"
+                            >
+                                <Avatar
+                                    size={70}
+                                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                                    {...(selectedDetailVehicle.photoUrl
+                                        ? { src: selectedDetailVehicle.photoUrl }
+                                        : { icon: <TbCar /> })}
+                                />
+                            </button>
 
                             <div>
                                 <h3>
@@ -513,16 +647,7 @@ const VehicleDashboard = () => {
                                 label="Mileage"
                                 value={`${selectedDetailVehicle.currentMileageKm ?? 0} km`}
                             />
-                            <InfoItem
-                                label="Created"
-                                value={
-                                    selectedDetailVehicle.createdAt
-                                        ? new Date(
-                                              selectedDetailVehicle.createdAt,
-                                          ).toLocaleString()
-                                        : '-'
-                                }
-                            />
+                            
                             <InfoItem
                                 label="Updated"
                                 value={
@@ -546,6 +671,70 @@ const VehicleDashboard = () => {
                 )}
             </Dialog>
 
+            <Dialog
+                isOpen={uploadDialogOpen}
+                onClose={handleCloseUploads}
+                onRequestClose={handleCloseUploads}
+                width={700}
+            >
+                <div className="flex flex-col gap-4">
+                    <div>
+                        <h4>Uploaded files</h4>
+                        {uploadVehicle && (
+                            <div className="text-sm text-gray-500 mt-1">
+                                {uploadVehicle.make} {uploadVehicle.model}
+                                {uploadVehicle.plateNumber
+                                    ? ` - ${uploadVehicle.plateNumber}`
+                                    : ''}
+                            </div>
+                        )}
+                    </div>
+
+                    {uploadsLoading ? (
+                        <div className="text-sm text-gray-500">
+                            Loading uploads...
+                        </div>
+                    ) : !uploadData?.data?.length ? (
+                        <Card>
+                            <div className="text-sm text-gray-500">
+                                No uploaded files for this vehicle.
+                            </div>
+                        </Card>
+                    ) : (
+                        <div className="flex flex-col gap-3">
+                            {uploadData.data.map((file) => (
+                                <Card key={file.id}>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="min-w-0">
+                                            <div className="font-semibold break-all">
+                                                {file.filename}
+                                            </div>
+                                            <div className="text-sm text-gray-500 mt-1">
+                                                Status: {file.status}
+                                            </div>
+                                            <div className="text-sm text-gray-500">
+                                                Rows: {file.row_count ?? 0}
+                                            </div>
+                                         
+                                        </div>
+
+                                        <Button
+                                            size="sm"
+                                            icon={<TbDownload />}
+                                            onClick={() =>
+                                                handleDownload(file.id, file.filename)
+                                            }
+                                        >
+                                            Download
+                                        </Button>
+                                    </div>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </Dialog>
+
             <ConfirmDialog
                 isOpen={deleteConfirmationOpen}
                 type="danger"
@@ -566,4 +755,3 @@ const VehicleDashboard = () => {
 }
 
 export default VehicleDashboard
-

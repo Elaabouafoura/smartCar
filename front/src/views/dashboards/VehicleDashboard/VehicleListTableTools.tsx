@@ -25,22 +25,19 @@ const VehicleListTableTools = ({ tableData, setTableData }: Props) => {
         }
     }
 
-return (
-    <div className="flex flex-col gap-3 mb-4">
-        
-        {/* Title */}
-        <div>
-            <h4 className="mb-1"> Vehicles</h4>
-        </div>
+    return (
+        <div className="flex flex-col gap-3 mb-4">
+            <div>
+                <h4 className="mb-1">Vehicles</h4>
+            </div>
 
-        {/* Search dessous */}
-        <DebouceInput
-            placeholder="Search "
-            suffix={<TbSearch className="text-lg" />}
-            onChange={handleInputChange}
-        />
-    </div>
-)
+            <DebouceInput
+                placeholder="Search"
+                suffix={<TbSearch className="text-lg" />}
+                onChange={handleInputChange}
+            />
+        </div>
+    )
 }
 
 export default VehicleListTableTools

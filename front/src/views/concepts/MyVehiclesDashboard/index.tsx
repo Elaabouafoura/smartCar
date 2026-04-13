@@ -7,9 +7,11 @@ import Card from '@/components/ui/Card'
 import Tooltip from '@/components/ui/Tooltip'
 import Dialog from '@/components/ui/Dialog'
 import Progress from '@/components/ui/Progress'
+import Notification from '@/components/ui/Notification'
+import toast from '@/components/ui/toast'
 import DataTable from '@/components/shared/DataTable'
 import { useNavigate } from 'react-router'
-import { TbCar, TbEye, TbPencil, TbUpload } from 'react-icons/tb'
+import { TbCar, TbEye, TbPencil, TbUpload, TbDownload } from 'react-icons/tb'
 import type {
     ColumnDef,
     OnSortParam,
@@ -20,14 +22,65 @@ import {
     type VehicleListItem,
     type VehiclePaginatedResponse,
 } from '@/services/DashboardService'
+import ApiService from '@/services/ApiService'
 
-const VehicleColumn = ({ row }: { row: VehicleListItem }) => {
+type UploadItem = {
+    id: string
+    filename: string
+    status: 'processing' | 'success' | 'failed'
+    row_count?: number
+    created_at?: string
+    downloadUrl?: string
+}
+
+type UploadPaginatedResponse = {
+    data: UploadItem[]
+    total: number
+    page: number
+    totalPages: number
+}
+
+const apiGetUploadsByVehicle = async <
+    T,
+    U extends { vehicleId: string; page: number; limit: number },
+>(
+    params: U,
+) => {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/uploads/vehicle/${params.vehicleId}`,
+        method: 'get',
+        params: {
+            page: params.page,
+            limit: params.limit,
+        },
+    })
+}
+
+const VehicleColumn = ({
+    row,
+    onPhotoClick,
+}: {
+    row: VehicleListItem
+    onPhotoClick: (vehicle: VehicleListItem) => void
+}) => {
     return (
         <div className="flex items-center gap-2">
-            <Avatar
-                size={50}
-                {...(row.photoUrl ? { src: row.photoUrl } : { icon: <TbCar /> })}
-            />
+            <button
+                type="button"
+                className="rounded-full"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    onPhotoClick(row)
+                }}
+                title="Show uploaded files"
+            >
+                <Avatar
+                    size={50}
+                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    {...(row.photoUrl ? { src: row.photoUrl } : { icon: <TbCar /> })}
+                />
+            </button>
+
             <div>
                 <div className="font-bold heading-text">
                     {row.make} {row.model}
@@ -125,12 +178,34 @@ const MyVehiclesDashboard = () => {
     const [selectedVehicle, setSelectedVehicle] =
         useState<VehicleListItem | null>(null)
 
+    const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+    const [uploadVehicle, setUploadVehicle] =
+        useState<VehicleListItem | null>(null)
+
     const { data, isLoading } = useSWR(
         ['/vehicles', tableData.pageIndex, tableData.pageSize],
         () =>
             apiGetMyVehicles<VehiclePaginatedResponse>({
                 page: tableData.pageIndex as number,
                 limit: tableData.pageSize as number,
+            }),
+        {
+            revalidateOnFocus: false,
+            revalidateIfStale: false,
+            revalidateOnReconnect: false,
+        },
+    )
+
+    const { data: uploadData, isLoading: uploadsLoading } = useSWR(
+        uploadVehicle ? ['/uploads/vehicle', uploadVehicle.id] : null,
+        () =>
+            apiGetUploadsByVehicle<
+                UploadPaginatedResponse,
+                { vehicleId: string; page: number; limit: number }
+            >({
+                vehicleId: uploadVehicle!.id,
+                page: 1,
+                limit: 20,
             }),
         {
             revalidateOnFocus: false,
@@ -152,13 +227,70 @@ const MyVehiclesDashboard = () => {
         setSelectedVehicle(null)
     }
 
+    const handleOpenUploads = (vehicle: VehicleListItem) => {
+        setUploadVehicle(vehicle)
+        setUploadDialogOpen(true)
+    }
+
+    const handleCloseUploads = () => {
+        setUploadDialogOpen(false)
+        setUploadVehicle(null)
+    }
+
+    const handleDownload = async (id: string, filename: string) => {
+        try {
+            const token = localStorage.getItem('token')
+
+            const response = await fetch(
+                `http://localhost:3000/api/v1/uploads/${id}/download`,
+                {
+                    method: 'GET',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                },
+            )
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                console.error('download error body =', errorText)
+                throw new Error(`Failed to download file (${response.status})`)
+            }
+
+            const blob = await response.blob()
+            const url = window.URL.createObjectURL(blob)
+
+            const link = document.createElement('a')
+            link.href = url
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+
+            window.URL.revokeObjectURL(url)
+        } catch (error) {
+            console.error('handleDownload error:', error)
+            toast.push(
+                <Notification type="danger">
+                    Failed to download upload
+                </Notification>,
+                { placement: 'top-center' },
+            )
+        }
+    }
+
     const columns: ColumnDef<VehicleListItem>[] = useMemo(
         () => [
             {
                 header: 'Vehicle',
                 accessorKey: 'make',
                 cell: (props) => {
-                    return <VehicleColumn row={props.row.original} />
+                    return (
+                        <VehicleColumn
+                            row={props.row.original}
+                            onPhotoClick={handleOpenUploads}
+                        />
+                    )
                 },
             },
             {
@@ -279,12 +411,20 @@ const MyVehiclesDashboard = () => {
 
                         <Card>
                             <div className="flex flex-col md:flex-row md:items-center gap-4">
-                                <Avatar
-                                    size={72}
-                                    {...(selectedVehicle.photoUrl
-                                        ? { src: selectedVehicle.photoUrl }
-                                        : { icon: <TbCar /> })}
-                                />
+                                <button
+                                    type="button"
+                                    className="rounded-full"
+                                    onClick={() => handleOpenUploads(selectedVehicle)}
+                                    title="Show uploaded files"
+                                >
+                                    <Avatar
+                                        size={72}
+                                        className="cursor-pointer hover:opacity-80 transition-opacity"
+                                        {...(selectedVehicle.photoUrl
+                                            ? { src: selectedVehicle.photoUrl }
+                                            : { icon: <TbCar /> })}
+                                    />
+                                </button>
 
                                 <div>
                                     <h3 className="mb-1">
@@ -322,27 +462,18 @@ const MyVehiclesDashboard = () => {
                                 label="Mileage"
                                 value={`${selectedVehicle.currentMileageKm ?? 0} km`}
                             />
-                            <InfoItem
-                                label="Created At"
-                                value={
-                                    selectedVehicle.createdAt
-                                        ? new Date(
-                                              selectedVehicle.createdAt,
-                                          ).toLocaleString()
-                                        : '-'
-                                }
-                            />
+                          
                             <InfoItem
                                 label="Updated At"
                                 value={
                                     selectedVehicle.updatedAt
-                                        ? new Date(
-                                              selectedVehicle.updatedAt,
-                                          ).toLocaleString()
+                                        ? new Date(selectedVehicle.updatedAt).toLocaleString()
                                         : '-'
                                 }
                             />
-                              <div className="flex justify-end mt-4">
+                        </div>
+
+                        <div className="flex justify-end mt-4">
                             <Button
                                 variant="solid"
                                 icon={<TbPencil />}
@@ -355,11 +486,72 @@ const MyVehiclesDashboard = () => {
                                 Edit
                             </Button>
                         </div>
-                        </div>
-
-                      
                     </div>
                 )}
+            </Dialog>
+
+            <Dialog
+                isOpen={uploadDialogOpen}
+                onClose={handleCloseUploads}
+                onRequestClose={handleCloseUploads}
+                width={700}
+            >
+                <div className="flex flex-col gap-4">
+                    <div>
+                        <h4>Uploaded files</h4>
+                        {uploadVehicle && (
+                            <div className="text-sm text-gray-500 mt-1">
+                                {uploadVehicle.make} {uploadVehicle.model}
+                                {uploadVehicle.plateNumber
+                                    ? ` - ${uploadVehicle.plateNumber}`
+                                    : ''}
+                            </div>
+                        )}
+                    </div>
+
+                    {uploadsLoading ? (
+                        <div className="text-sm text-gray-500">
+                            Loading uploads...
+                        </div>
+                    ) : !uploadData?.data?.length ? (
+                        <Card>
+                            <div className="text-sm text-gray-500">
+                                No uploaded files for this vehicle.
+                            </div>
+                        </Card>
+                    ) : (
+                        <div className="flex flex-col gap-3">
+                            {uploadData.data.map((file) => (
+                                <Card key={file.id}>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="min-w-0">
+                                            <div className="font-semibold break-all">
+                                                {file.filename}
+                                            </div>
+                                            <div className="text-sm text-gray-500 mt-1">
+                                                Status: {file.status}
+                                            </div>
+                                            <div className="text-sm text-gray-500">
+                                                Rows: {file.row_count ?? 0}
+                                            </div>
+                                          
+                                        </div>
+
+                                        <Button
+                                            size="sm"
+                                            icon={<TbDownload />}
+                                            onClick={() =>
+                                                handleDownload(file.id, file.filename)
+                                            }
+                                        >
+                                            Download
+                                        </Button>
+                                    </div>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </Dialog>
         </Card>
     )
