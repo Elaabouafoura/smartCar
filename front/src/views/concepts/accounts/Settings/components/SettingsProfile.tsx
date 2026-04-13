@@ -69,20 +69,28 @@ const SettingsProfile = () => {
         })
     }, [data, reset])
 
-    const onSubmit = async (values: ProfileSchema) => {
-        try {
-            await apiUpdateProfile({
-                name: `${values.firstName} ${values.lastName}`.trim(),
-                email: values.email,
-                avatarUrl: values.img || null,
-            })
-
-            await mutate()
-        } catch (err) {
-            console.error('Update profile error:', err)
+  const onSubmit = async (values: ProfileSchema) => {
+    try {
+        const payload: Record<string, unknown> = {
+            name: `${values.firstName} ${values.lastName}`.trim(),
+            email: values.email,
         }
-    }
 
+        if (
+            values.img &&
+            /^https?:\/\/.+/i.test(values.img)
+        ) {
+            payload.avatarUrl = values.img
+        }
+
+        await apiUpdateProfile(payload)
+        await mutate()
+    } catch (err: any) {
+        console.error('Update profile error:', err)
+        console.error('Status:', err?.response?.status)
+        console.error('Backend response:', err?.response?.data)
+    }
+}
     const handleUpload = async (files: File[]) => {
         try {
             if (!files.length) return

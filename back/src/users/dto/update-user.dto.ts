@@ -7,8 +7,10 @@ export class UpdateUserDto {
   @IsString()
   name?: string;
 
-  @IsOptional()
-  @IsUrl()
+ @IsOptional()
+  @IsUrl({
+    require_tld: false,
+  })
   avatarUrl?: string;
 
   @IsOptional()

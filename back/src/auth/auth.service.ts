@@ -128,7 +128,7 @@ async logout(token: string) {
  
 const resetLink = `${process.env.FRONTEND_URL}/auth/password-new?token=${encodeURIComponent(raw)}`;
 
-  // Config transport mail
+ 
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -137,7 +137,7 @@ const resetLink = `${process.env.FRONTEND_URL}/auth/password-new?token=${encodeU
     },
   });
 
-  // Envoi mail
+
   await transporter.sendMail({
     from: `"Your App" <${process.env.EMAIL_USER}>`,
     to: user.email,

@@ -230,7 +230,6 @@ export class UploadService {
     };
   }
 
-  // ─── DTC Entries ──────────────────────────────────────────────────────────────
   private buildDtcCsv(
     entries: DtcEntry[],
     vehicleId: string,

@@ -18,8 +18,7 @@ const menuList: { label: string; value: View; icon: ReactNode }[] = [
     { label: 'Profile', value: 'profile', icon: <TbUserSquare /> },
     { label: 'Security', value: 'security', icon: <TbLock /> },
     { label: 'Notification', value: 'notification', icon: <TbBell /> },
-    { label: 'Billing', value: 'billing', icon: <TbFileDollar /> },
-    { label: 'Integration', value: 'integration', icon: <TbRefreshDot /> },
+   
 ]
 
 export const SettingsMenu = ({ onChange }: { onChange?: () => void }) => {
