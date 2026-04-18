@@ -136,8 +136,12 @@ const UploadRow = ({
                             {item.filename}
                         </div>
                         <div className="text-sm text-gray-500 mt-1">
-                            Rows: {item.row_count ?? '-'} ·{' '}
-                            {new Date(item.created_at).toLocaleString()}
+                            
+                            {item.vehicle?.make && ` · ${item.vehicle.make}`}
+                            {item.vehicle?.model && ` ${item.vehicle.model}`}
+                            {item.vehicle?.plateNumber && ` (${item.vehicle.plateNumber})`}
+                            
+                        
                         </div>
                     </div>
                 </div>
