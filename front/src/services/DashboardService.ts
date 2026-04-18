@@ -287,3 +287,13 @@ export async function apiGetMarketingDashboard<T>() {
         method: 'get',
     })
 }
+
+
+
+
+export async function apiGetVehicleDashboard<T>(vehicleId: string) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/vehicles/${vehicleId}/sensor-data/dashboard`,
+        method: 'get',
+    })
+}

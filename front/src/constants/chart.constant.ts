@@ -1,4 +1,4 @@
-export const COLOR_1 = '#2a85ff'
+export const COLOR_1 = '#7dd3fc'
 export const COLOR_2 = '#7cbc7d'
 export const COLOR_3 = '#ff6a55'
 export const COLOR_4 = '#8C62FF'

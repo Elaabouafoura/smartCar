@@ -11,7 +11,7 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
-import { TbChecks, TbTrash, TbX } from 'react-icons/tb'
+import { TbChecks, TbTrash, TbX, TbUsers, TbShield, TbUser } from 'react-icons/tb'
 import {
     apiGetUsers,
     type UserListItem,
@@ -335,11 +335,14 @@ const UsersDashboard = () => {
 
                     return (
                         <div className="flex items-center gap-3">
-                            <Avatar size={32}>
+                            <Avatar 
+                                size={40} 
+                                className="bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-md"
+                            >
                                 {(user.name ?? 'U').charAt(0).toUpperCase()}
                             </Avatar>
                             <div>
-                                <div className="heading-text font-bold">
+                                <div className="heading-text font-semibold text-gray-900 dark:text-gray-100">
                                     {user.name}
                                 </div>
                             </div>
@@ -350,6 +353,11 @@ const UsersDashboard = () => {
             {
                 header: 'Email',
                 accessorKey: 'email',
+                cell: (props) => (
+                    <div className="text-gray-600 dark:text-gray-400">
+                        {props.row.original.email}
+                    </div>
+                ),
             },
             {
                 header: 'Role',
@@ -358,7 +366,7 @@ const UsersDashboard = () => {
                     const user = props.row.original
 
                     return (
-                        <div className="min-w-[150px]">
+                        <div className="w-32">
                             <Select<RoleOption>
                                 size="sm"
                                 isDisabled={roleUpdatingUserId === user.id}
@@ -374,6 +382,61 @@ const UsersDashboard = () => {
                                         user.role,
                                     )
                                 }}
+                                className="role-select-custom"
+                                styles={{
+                                    control: (base, { isDisabled }) => ({
+                                        ...base,
+                                        backgroundColor: 'transparent',
+                                        borderColor: '#e2e8f0',
+                                        borderRadius: '8px',
+                                        minHeight: '36px',
+                                        boxShadow: 'none',
+                                        '&:hover': {
+                                            backgroundColor: 'transparent',
+                                            borderColor: '#cbd5e1',
+                                        },
+                                        ...(isDisabled && {
+                                            backgroundColor: '#f3f4f6',
+                                            opacity: 0.6,
+                                        }),
+                                    }),
+                                    menu: (base) => ({
+                                        ...base,
+                                        backgroundColor: 'white',
+                                        borderRadius: '8px',
+                                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                        marginTop: '4px',
+                                    }),
+                                    option: (base, { isFocused, isSelected }) => ({
+                                        ...base,
+                                        backgroundColor: isSelected 
+                                            ? '#3b82f6' 
+                                            : isFocused 
+                                            ? '#f3f4f6' 
+                                            : 'white',
+                                        color: isSelected ? 'white' : '#374151',
+                                        cursor: 'pointer',
+                                        '&:active': {
+                                            backgroundColor: isSelected ? '#3b82f6' : '#e5e7eb',
+                                        },
+                                    }),
+                                    singleValue: (base) => ({
+                                        ...base,
+                                        color: '#1f2937',
+                                        fontWeight: 500,
+                                    }),
+                                    indicatorSeparator: (base) => ({
+                                        ...base,
+                                        backgroundColor: '#e2e8f0',
+                                    }),
+                                    dropdownIndicator: (base) => ({
+                                        ...base,
+                                        color: '#9ca3af',
+                                        '&:hover': {
+                                            color: '#6b7280',
+                                        },
+                                    }),
+                                }}
                             />
                         </div>
                     )
@@ -383,9 +446,16 @@ const UsersDashboard = () => {
                 header: 'Created at',
                 accessorKey: 'createdAt',
                 cell: (props) => {
-                    return new Date(
-                        props.row.original.createdAt,
-                    ).toLocaleDateString()
+                    const date = new Date(props.row.original.createdAt)
+                    return (
+                        <div className="text-gray-500 dark:text-gray-400 text-sm">
+                            {date.toLocaleDateString('fr-FR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric'
+                            })}
+                        </div>
+                    )
                 },
             },
         ],
@@ -395,7 +465,7 @@ const UsersDashboard = () => {
     return (
         <Loading loading={isLoading}>
             <div className="flex flex-col gap-4">
-                <Card>
+                <Card className="shadow-lg border-0">
                     <UsersTableTools
                         tableData={tableData}
                         setTableData={setTableData}
@@ -405,24 +475,42 @@ const UsersDashboard = () => {
                         setSelectedUsers={setSelectedUsers}
                     />
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-                            <div className="text-sm text-gray-500">
-                                Total users
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                        <div className="bg-gradient-to-br  dark:from-blue-900/20 dark:to-blue-800/20 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 border border-blue-200 dark:border-blue-800">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Total Users</p>
+                                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{stats.total}</h3>
+                                </div>
+                                <div className="h-12 w-12 bg-blue-500/10 rounded-full flex items-center justify-center">
+                                    <TbUsers className="text-blue-500 text-xl" />
+                                </div>
                             </div>
-                            <h3 className="mt-2">{stats.total}</h3>
                         </div>
 
-                        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-                            <div className="text-sm text-gray-500">
-                                Admins
+                        <div className="bg-gradient-to-br  dark:from-purple-900/20 dark:to-purple-800/20 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 border border-purple-200 dark:border-purple-800">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Admins</p>
+                                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{stats.admins}</h3>
+                                </div>
+                                <div className="h-12 w-12 bg-purple-500/10 rounded-full flex items-center justify-center">
+                                    <TbShield className="text-purple-500 text-xl" />
+                                </div>
                             </div>
-                            <h3 className="mt-2">{stats.admins}</h3>
                         </div>
 
-                        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-                            <div className="text-sm text-gray-500">Users</div>
-                            <h3 className="mt-2">{stats.normalUsers}</h3>
+                        <div className="bg-gradient-to-br  dark:from-green-900/20 dark:to-green-800/20 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 border border-green-200 dark:border-green-800">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-medium text-green-600 dark:text-green-400"> Users</p>
+                                    <h3 className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{stats.normalUsers}</h3>
+                                </div>
+                                <div className="h-12 w-12 bg-green-500/10 rounded-full flex items-center justify-center">
+                                    <TbUser className="text-green-500 text-xl" />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -456,7 +544,7 @@ const UsersDashboard = () => {
 
                 {selectedUsers.length > 0 && (
                     <StickyFooter
-                        className="flex items-center justify-between py-4 bg-white dark:bg-gray-800"
+                        className="flex items-center justify-between py-4 bg-white dark:bg-gray-800 shadow-lg"
                         stickyClass="-mx-4 sm:-mx-8 border-t border-gray-200 dark:border-gray-700 px-8"
                         defaultClass="container mx-auto px-8 rounded-xl border border-gray-200 dark:border-gray-600 mt-4"
                     >
@@ -479,6 +567,7 @@ const UsersDashboard = () => {
                                         size="sm"
                                         icon={<TbX />}
                                         onClick={handleClearSelection}
+                                        className="hover:bg-gray-100 dark:hover:bg-gray-700"
                                     >
                                         Clear selection
                                     </Button>
@@ -488,7 +577,7 @@ const UsersDashboard = () => {
                                         type="button"
                                         icon={<TbTrash />}
                                         customColorClass={() =>
-                                            'border-error ring-1 ring-error text-error hover:border-error hover:ring-error hover:text-error'
+                                            'border-error ring-1 ring-error text-error hover:border-error hover:ring-error hover:text-error hover:bg-error/10'
                                         }
                                         onClick={handleDelete}
                                     >

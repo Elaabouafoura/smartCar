@@ -320,4 +320,143 @@ export class SensorReadingService {
       totalPages: Math.ceil(total / limit),
     };
   }
+
+  async getMyVehicles(userId: string) {
+    return this.vehicleRepo.find({
+      where: { userId },
+      relations: ['sensorReadings'],
+      order: { id: 'DESC' as any },
+    });
+  }
+
+  async getLastUpload(vehicleId: string) {
+    return this.uploadRepo
+      .createQueryBuilder('upload')
+      .leftJoin('upload.vehicle', 'vehicle')
+      .where('vehicle.id = :vehicleId', { vehicleId })
+      .orderBy('upload.created_at', 'DESC')
+      .limit(1)
+      .getOne();
+  }
+
+  async getVehicleDashboard(
+    vehicleId: string,
+    userId: string,
+    from?: string,
+    to?: string,
+    uploadId?: string,
+  ) {
+    const vehicle = await this.checkOwnership(vehicleId, userId);
+
+    let effectiveUploadId = uploadId;
+
+    if (!effectiveUploadId) {
+      const lastUpload = await this.getLastUpload(vehicleId);
+
+      if (!lastUpload) {
+        return {
+          vehicle: {
+            id: vehicle.id,
+            name: (vehicle as any).name ?? null,
+            plateNumber: (vehicle as any).plateNumber ?? null,
+          },
+          selectedUploadId: null,
+          summary: {
+            totalReadings: 0,
+            rpmMax: 0,
+            speedMax: 0,
+            coolantAvg: 0,
+            fuelAvg: 0,
+          },
+          charts: {
+            rpmSpeed: [],
+            loadThrottle: [],
+            temperatures: [],
+            trimsMaf: [],
+          },
+        };
+      }
+
+      effectiveUploadId = lastUpload.id;
+    }
+
+    const qb = this.sensorRepo
+      .createQueryBuilder('sr')
+      .leftJoin('sr.vehicle', 'vehicle')
+      .leftJoin('sr.upload', 'upload')
+      .where('vehicle.id = :vehicleId', { vehicleId });
+
+    if (from) {
+      qb.andWhere('sr.timestamp >= :from', { from });
+    }
+
+    if (to) {
+      qb.andWhere('sr.timestamp <= :to', { to });
+    }
+
+    qb.andWhere('upload.id = :uploadId', {
+      uploadId: effectiveUploadId,
+    });
+
+    qb.orderBy('sr.timestamp', 'ASC');
+
+    const rows = await qb.getMany();
+
+    const clean = (values: Array<number | null | undefined>) =>
+      values.filter((v): v is number => typeof v === 'number' && !isNaN(v));
+
+    const average = (values: number[]) =>
+      values.length
+        ? Number(
+            (
+              values.reduce((sum, current) => sum + current, 0) / values.length
+            ).toFixed(1),
+          )
+        : 0;
+
+    const rpm = clean(rows.map((r) => r.engine_rpm));
+    const speed = clean(rows.map((r) => r.vehicle_speed_kmh));
+    const coolant = clean(rows.map((r) => r.coolant_temp_c));
+    const fuel = clean(rows.map((r) => r.fuel_level_pct));
+
+    return {
+      vehicle: {
+        id: vehicle.id,
+        name: (vehicle as any).name ?? null,
+        plateNumber: (vehicle as any).plateNumber ?? null,
+      },
+      selectedUploadId: effectiveUploadId,
+      summary: {
+        totalReadings: rows.length,
+        rpmMax: rpm.length ? Math.max(...rpm) : 0,
+        speedMax: speed.length ? Math.max(...speed) : 0,
+        coolantAvg: average(coolant),
+        fuelAvg: average(fuel),
+      },
+      charts: {
+        rpmSpeed: rows.map((r) => ({
+          timestamp: r.timestamp,
+          engine_rpm: r.engine_rpm,
+          vehicle_speed_kmh: r.vehicle_speed_kmh,
+        })),
+        loadThrottle: rows.map((r) => ({
+          timestamp: r.timestamp,
+          engine_load_pct: r.engine_load_pct,
+          throttle_position_pct: r.throttle_position_pct,
+        })),
+        temperatures: rows.map((r) => ({
+          timestamp: r.timestamp,
+          coolant_temp_c: r.coolant_temp_c,
+          intake_air_temp_c: r.intake_air_temp_c,
+          ambient_temp_c: r.ambient_temp_c,
+        })),
+        trimsMaf: rows.map((r) => ({
+          timestamp: r.timestamp,
+          short_fuel_trim_pct: r.short_fuel_trim_pct,
+          long_fuel_trim_pct: r.long_fuel_trim_pct,
+          maf_airflow_gs: r.maf_airflow_gs,
+        })),
+      },
+    };
+  }
 }

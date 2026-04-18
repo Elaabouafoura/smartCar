@@ -43,7 +43,7 @@ const dashboardsRoute: Routes = [
     {
         key: 'dashboard.analytic',
         path: `${DASHBOARDS_PREFIX_PATH}/analytic`,
-        component: lazy(() => import('@/views/dashboards/AnalyticDashboard')),
+        component: lazy(() => import('@/views/dashboards/Dashboard')),
         authority: [USER,ADMIN],
         meta: {
             pageContainerType: 'contained',

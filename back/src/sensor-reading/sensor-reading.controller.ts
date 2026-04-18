@@ -52,4 +52,21 @@ export class SensorReadingController {
   ) {
     return this.service.findAll(vehicleId, req.user.id, page, limit);
   }
+
+  @Get('dashboard')
+  getVehicleDashboard(
+    @Param('vehicleId') vehicleId: string,
+    @Req() req: Request & { user: { id: string } },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('uploadId') uploadId?: string,
+  ) {
+    return this.service.getVehicleDashboard(
+      vehicleId,
+      req.user.id,
+      from,
+      to,
+      uploadId,
+    );
+  }
 }
