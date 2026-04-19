@@ -52,4 +52,16 @@ export class MaintenanceController {
   ) {
     return this.service.findAll(vehicleId, req.user.id, page, limit);
   }
+
+  @Get('analytics')
+  getAnalytics(
+    @Param('vehicleId') vehicleId: string,
+    @Req() req,
+  ) {
+    return this.service.getAnalytics(
+      vehicleId,
+      req.user.id,
+    );
+  }
+
 }

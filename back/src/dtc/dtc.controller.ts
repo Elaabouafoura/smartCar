@@ -66,4 +66,10 @@ export class DtcController {
       status,
     );
   }
+
+
+  @Get('analytics')
+  getDtcAnalytics(@Param('vehicleId') vehicleId: string, @Req() req) {
+    return this.service.getDtcAnalytics(vehicleId, req.user.id)
+  }
 }

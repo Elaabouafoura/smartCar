@@ -329,15 +329,17 @@ export class SensorReadingService {
     });
   }
 
-  async getLastUpload(vehicleId: string) {
-    return this.uploadRepo
-      .createQueryBuilder('upload')
-      .leftJoin('upload.vehicle', 'vehicle')
-      .where('vehicle.id = :vehicleId', { vehicleId })
-      .orderBy('upload.created_at', 'DESC')
-      .limit(1)
-      .getOne();
-  }
+ async getLastSensorReadingUpload(vehicleId: string) {
+  return this.uploadRepo
+    .createQueryBuilder('upload')
+    .leftJoin('upload.vehicle', 'vehicle')
+    .leftJoin('upload.sensorReadings', 'sensorReadings')
+    .where('vehicle.id = :vehicleId', { vehicleId })
+    .andWhere('sensorReadings.id IS NOT NULL')
+    .orderBy('upload.created_at', 'DESC')
+    .limit(1)
+    .getOne();
+}
 
   async getVehicleDashboard(
     vehicleId: string,
@@ -351,7 +353,7 @@ export class SensorReadingService {
     let effectiveUploadId = uploadId;
 
     if (!effectiveUploadId) {
-      const lastUpload = await this.getLastUpload(vehicleId);
+      const lastUpload = await this.getLastSensorReadingUpload(vehicleId);
 
       if (!lastUpload) {
         return {

@@ -296,4 +296,21 @@ export async function apiGetVehicleDashboard<T>(vehicleId: string) {
         url: `/vehicles/${vehicleId}/sensor-data/dashboard`,
         method: 'get',
     })
+
+
+}
+
+export async function apiGetVehicleMaintenanceAnalytics<T>(vehicleId: string) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/vehicles/${vehicleId}/maintenance/analytics`,
+        method: 'get',
+    })
+}
+
+
+export async function apiGetVehicleDtcAnalytics<T>(vehicleId: string) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/vehicles/${vehicleId}/dtc/analytics`,
+        method: 'get',
+    })
 }

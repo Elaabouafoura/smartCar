@@ -321,4 +321,62 @@ export class MaintenanceService {
       totalPages: Math.ceil(total / limit),
     };
   }
+
+
+  async getAnalytics(vehicleId: string, userId: string) {
+  await this.checkOwnership(vehicleId, userId);
+
+  const records = await this.maintenanceRepo.find({
+    where: { vehicle: { id: vehicleId } },
+    order: { service_date: 'ASC' },
+  });
+
+  
+  const totalCost = records.reduce(
+    (sum, r) => sum + Number(r.cost || 0),
+    0,
+  );
+
+
+  const costPerMonth: Record<string, number> = {};
+
+  records.forEach((r) => {
+    const date = new Date(r.service_date);
+    const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
+
+    if (!costPerMonth[key]) {
+      costPerMonth[key] = 0;
+    }
+
+    costPerMonth[key] += Number(r.cost || 0);
+  });
+
+  const costChart = Object.entries(costPerMonth).map(
+    ([month, cost]) => ({
+      month,
+      cost,
+    }),
+  );
+
+  const nextMaintenance = records
+    .filter((r) => r.next_due_date)
+    .sort(
+      (a, b) =>
+        new Date(a.next_due_date).getTime() -
+        new Date(b.next_due_date).getTime(),
+    )[0];
+
+  const now = new Date();
+  const overdue = records.filter(
+    (r) => r.next_due_date && new Date(r.next_due_date) < now,
+  );
+
+  return {
+    totalCost,
+    totalRecords: records.length,
+    costChart,
+    nextMaintenance,
+    overdueCount: overdue.length,
+  };
+}
 }

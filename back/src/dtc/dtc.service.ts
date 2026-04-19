@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { DtcEntry } from './entities/dtc.entity';
+import { DtcEntry, DtcSeverity, DtcStatus } from './entities/dtc.entity';
 import { Vehicle } from '../vehicle/entities/vehicle.entity';
 import { CreateDtcDto } from './dto/create-dtc.dto';
 import { parse } from 'csv-parse/sync';
@@ -335,4 +335,111 @@ export class DtcService {
       totalPages: Math.ceil(total / limit),
     };
   }
+
+
+
+
+
+  async getDtcAnalytics(vehicleId: string, userId: string) {
+  await this.checkOwnership(vehicleId, userId)
+
+  const entries = await this.dtcRepo.find({
+    where: { vehicle: { id: vehicleId } },
+    order: { timestamp: 'ASC' },
+  })
+
+  const totalEntries = entries.length
+  const milActiveCount = entries.filter((e) => e.mil_active).length
+  const highSeverityCount = entries.filter(
+    (e) => e.severity === DtcSeverity.HIGH,
+  ).length
+  const pendingCount = entries.filter(
+    (e) => e.status === DtcStatus.PENDING,
+  ).length
+
+  const severityMap: Record<string, number> = {
+    low: 0,
+    medium: 0,
+    high: 0,
+  }
+
+  const statusMap: Record<string, number> = {
+    pending: 0,
+    confirmed: 0,
+    permanent: 0,
+    cleared: 0,
+  }
+
+  const codeMap: Record<string, number> = {}
+  const categoryMap: Record<string, number> = {}
+  const perDayMap: Record<string, number> = {}
+
+  entries.forEach((e) => {
+    severityMap[e.severity] = (severityMap[e.severity] || 0) + 1
+    statusMap[e.status] = (statusMap[e.status] || 0) + 1
+    codeMap[e.dtc_code] = (codeMap[e.dtc_code] || 0) + 1
+    categoryMap[e.component_category] =
+      (categoryMap[e.component_category] || 0) + 1
+
+    const day = new Date(e.timestamp).toISOString().split('T')[0]
+    perDayMap[day] = (perDayMap[day] || 0) + 1
+  })
+
+  const severityChart = Object.entries(severityMap).map(([name, value]) => ({
+    name,
+    value,
+  }))
+
+  const statusChart = Object.entries(statusMap).map(([name, value]) => ({
+    name,
+    value,
+  }))
+
+  const topCodes = Object.entries(codeMap)
+    .map(([code, count]) => ({ code, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+
+  const categoryChart = Object.entries(categoryMap)
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count)
+
+  const timeline = Object.entries(perDayMap)
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const latestEntries = [...entries]
+    .sort(
+      (a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    )
+    .slice(0, 10)
+    .map((e) => ({
+      id: e.id,
+      timestamp: e.timestamp,
+      dtc_code: e.dtc_code,
+      description: e.description,
+      severity: e.severity,
+      status: e.status,
+      mil_active: e.mil_active,
+      component_category: e.component_category,
+    }))
+
+  return {
+    summary: {
+      totalEntries,
+      milActiveCount,
+      highSeverityCount,
+      pendingCount,
+    },
+    charts: {
+      severityChart,
+      statusChart,
+      topCodes,
+      categoryChart,
+      timeline,
+    },
+    latestEntries,
+  }
+}
 }

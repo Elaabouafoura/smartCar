@@ -61,7 +61,7 @@ const SignInForm = (props: SignInFormProps) => {
     if (result.user?.role === 'ADMIN') {
         window.location.href = '/dashboards/user'
     } else {
-        window.location.href = '/concepts/vehicles/vehicle-list'
+        window.location.href = '/dashboards/analytic'
     }
 }
             

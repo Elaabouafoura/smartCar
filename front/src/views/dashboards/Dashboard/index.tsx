@@ -11,23 +11,38 @@ import {
     TbRoute,
     TbEngine,
     TbTemperature,
+    TbTool,
+    TbAlertTriangle,
+    TbCalendarEvent,
+    TbCurrencyDollar,
+    TbPlaylistX,
 } from 'react-icons/tb'
-import { apiGetMyVehicles, apiGetVehicleDashboard } from '@/services/DashboardService'
+import {
+    apiGetMyVehicles,
+    apiGetVehicleDashboard,
+    apiGetVehicleMaintenanceAnalytics,
+    apiGetVehicleDtcAnalytics,
+} from '@/services/DashboardService'
 import { COLORS } from '@/constants/chart.constant'
 import { useThemeStore } from '@/store/themeStore'
 import {
     ResponsiveContainer,
-    LineChart,
     Line,
-    CartesianGrid,
     XAxis,
     YAxis,
     Tooltip,
     Legend,
     AreaChart,
     Area,
+    BarChart,
+    Bar,
+    CartesianGrid,
 } from 'recharts'
 import type { ReactNode } from 'react'
+import type {
+    NameType,
+    ValueType,
+} from 'recharts/types/component/DefaultTooltipContent'
 
 type VehicleItem = {
     id: string
@@ -79,12 +94,85 @@ type VehicleDashboardResponse = {
     }
 }
 
+type MaintenanceRecordLite = {
+    service_date?: string
+    service_type?: string
+    mileage_at_service_km?: number
+    cost?: number
+    parts_replaced?: string
+    shop?: string
+    notes?: string
+    next_due_km?: number
+    next_due_date?: string
+}
+
+type MaintenanceAnalyticsResponse = {
+    totalCost: number
+    totalRecords: number
+    costChart: {
+        month: string
+        cost: number
+    }[]
+    nextMaintenance?: MaintenanceRecordLite | null
+    overdueCount: number
+}
+
+type DtcAnalyticsResponse = {
+    summary: {
+        totalEntries: number
+        milActiveCount: number
+        highSeverityCount: number
+        pendingCount: number
+    }
+    charts: {
+        severityChart: {
+            name: string
+            value: number
+        }[]
+        statusChart: {
+            name: string
+            value: number
+        }[]
+        topCodes: {
+            code: string
+            count: number
+        }[]
+        categoryChart: {
+            category: string
+            count: number
+        }[]
+        timeline: {
+            date: string
+            count: number
+        }[]
+    }
+    latestEntries: {
+        id: string
+        timestamp: string
+        dtc_code: string
+        description?: string
+        severity: string
+        status: string
+        mil_active: boolean
+        component_category: string
+    }[]
+}
+
 type VehicleDashboardItem = {
     vehicle: VehicleItem
     dashboard: VehicleDashboardResponse
+    maintenance: MaintenanceAnalyticsResponse | null
+    dtc: DtcAnalyticsResponse | null
 }
 
 type CombinedMetricFilter = 'charge' | 'temperatures'
+type VehicleViewMode = 'sensor' | 'maintenance' | 'dtc'
+
+const downsample = <T,>(arr: T[], maxPoints = 60): T[] => {
+    if (arr.length <= maxPoints) return arr
+    const step = Math.ceil(arr.length / maxPoints)
+    return arr.filter((_, i) => i % step === 0)
+}
 
 const Dashboard = () => {
     const isFirstRender = useRef(true)
@@ -108,6 +196,12 @@ const Dashboard = () => {
 
     const [dashboards, setDashboards] = useState<VehicleDashboardItem[]>([])
     const [loadingDashboards, setLoadingDashboards] = useState(false)
+    const [viewMode, setViewMode] = useState<Record<string, VehicleViewMode>>(
+        {},
+    )
+
+    const getVehicleViewMode = (vehicleId: string): VehicleViewMode =>
+        viewMode[vehicleId] || 'sensor'
 
     useEffect(() => {
         if (!sideNavCollapse && isFirstRender.current) {
@@ -134,14 +228,25 @@ const Dashboard = () => {
             try {
                 const results = await Promise.all(
                     vehicles.map(async (vehicle) => {
-                        const dashboard =
-                            await apiGetVehicleDashboard<VehicleDashboardResponse>(
-                                vehicle.id,
-                            )
+                        const [dashboard, maintenance, dtc] = await Promise.all(
+                            [
+                                apiGetVehicleDashboard<VehicleDashboardResponse>(
+                                    vehicle.id,
+                                ),
+                                apiGetVehicleMaintenanceAnalytics<MaintenanceAnalyticsResponse>(
+                                    vehicle.id,
+                                ).catch(() => null),
+                                apiGetVehicleDtcAnalytics<DtcAnalyticsResponse>(
+                                    vehicle.id,
+                                ).catch(() => null),
+                            ],
+                        )
 
                         return {
                             vehicle,
                             dashboard,
+                            maintenance,
+                            dtc,
                         }
                     }),
                 )
@@ -156,16 +261,19 @@ const Dashboard = () => {
     }, [vehiclesResponse])
 
     const isLoading = vehiclesLoading || loadingDashboards
-
     const formatTime = (value: string) => dayjs(value).format('HH:mm')
 
     return (
         <Loading loading={isLoading}>
             <div className="flex flex-col gap-6">
-                {dashboards.map(({ vehicle, dashboard }) => {
+                {dashboards.map(({ vehicle, dashboard, maintenance, dtc }) => {
                     const title =
                         [vehicle.make, vehicle.model].filter(Boolean).join(' ') ||
                         `Véhicule ${vehicle.id}`
+
+                    const sampledRpmSpeed = downsample(dashboard.charts.rpmSpeed)
+                    const sampledTrimsMaf = downsample(dashboard.charts.trimsMaf)
+                    const currentView = getVehicleViewMode(vehicle.id)
 
                     return (
                         <Card
@@ -176,11 +284,38 @@ const Dashboard = () => {
                                 <div className="flex flex-col gap-5">
                                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                                         <div>
-                                            <h3 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
-                                                {title}
-                                            </h3>
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                                <h3 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                                                    {title}
+                                                </h3>
+
+                                                <Segment
+                                                    value={currentView}
+                                                    size="sm"
+                                                    onChange={(val) =>
+                                                        setViewMode((prev) => ({
+                                                            ...prev,
+                                                            [vehicle.id]:
+                                                                val as VehicleViewMode,
+                                                        }))
+                                                    }
+                                                >
+                                                    <Segment.Item value="sensor">
+                                                        Sensor
+                                                    </Segment.Item>
+                                                    <Segment.Item value="maintenance">
+                                                        Maintenance
+                                                    </Segment.Item>
+                                                    <Segment.Item value="dtc">
+                                                        DTC
+                                                    </Segment.Item>
+                                                </Segment>
+                                            </div>
+
                                             <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                                {vehicle.year ? `${vehicle.year} • ` : ''}
+                                                {vehicle.year
+                                                    ? `${vehicle.year} • `
+                                                    : ''}
                                                 {vehicle.plateNumber
                                                     ? `Plaque: ${vehicle.plateNumber}`
                                                     : 'Aucune plaque'}
@@ -188,157 +323,387 @@ const Dashboard = () => {
                                         </div>
                                     </div>
 
-                                    <VehicleQuickStats dashboard={dashboard} />
+                                    {currentView === 'sensor' ? (
+                                        <VehicleQuickStats dashboard={dashboard} />
+                                    ) : currentView === 'maintenance' ? (
+                                        <MaintenanceQuickStats
+                                            maintenance={maintenance}
+                                        />
+                                    ) : (
+                                        <DtcQuickStats dtc={dtc} />
+                                    )}
                                 </div>
                             </div>
 
                             <div className="p-6">
-                                <div className="grid grid-cols-12 gap-4">
-                                    <div className="col-span-12">
-                                        <CombinedMonitorChart dashboard={dashboard} />
-                                    </div>
+                                {currentView === 'sensor' ? (
+                                    <div className="grid grid-cols-12 gap-4">
+                                        <div className="col-span-12">
+                                            <ModernChartSection
+                                                title="Fuel trims & MAF"
+                                                height={340}
+                                            >
+                                                <ResponsiveContainer
+                                                    width="100%"
+                                                    height="100%"
+                                                >
+                                                    <AreaChart
+                                                        data={sampledTrimsMaf}
+                                                    >
+                                                        <defs>
+                                                            <linearGradient
+                                                                id={`mafGradient-${vehicle.id}`}
+                                                                x1="0"
+                                                                y1="0"
+                                                                x2="0"
+                                                                y2="1"
+                                                            >
+                                                                <stop
+                                                                    offset="5%"
+                                                                    stopColor="#10b981"
+                                                                    stopOpacity={0.2}
+                                                                />
+                                                                <stop
+                                                                    offset="95%"
+                                                                    stopColor="#10b981"
+                                                                    stopOpacity={0.02}
+                                                                />
+                                                            </linearGradient>
+                                                        </defs>
 
-                                    <div className="col-span-12 lg:col-span-6">
-                                        <ModernChartSection
-                                            title="RPM and speed"
-                                            height={320}
-                                        >
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={dashboard.charts.rpmSpeed}>
-                                                    <defs>
-                                                        <linearGradient
-                                                            id={`rpmGradient-${vehicle.id}`}
-                                                            x1="0"
-                                                            y1="0"
-                                                            x2="0"
-                                                            y2="1"
-                                                        >
-                                                            <stop
-                                                                offset="5%"
-                                                                stopColor={COLORS[0]}
-                                                                stopOpacity={0.22}
-                                                            />
-                                                            <stop
-                                                                offset="95%"
-                                                                stopColor={COLORS[0]}
-                                                                stopOpacity={0.02}
-                                                            />
-                                                        </linearGradient>
-                                                    </defs>
-                                                    <CartesianGrid
-                                                        strokeDasharray="3 3"
-                                                        vertical={false}
-                                                    />
-                                                    <XAxis
-                                                        dataKey="timestamp"
-                                                        tickFormatter={formatTime}
-                                                        tick={{ fontSize: 12 }}
-                                                    />
-                                                    <YAxis
-                                                        yAxisId="left"
-                                                        tick={{ fontSize: 12 }}
-                                                    />
-                                                    <YAxis
-                                                        yAxisId="right"
-                                                        orientation="right"
-                                                        tick={{ fontSize: 12 }}
-                                                    />
-                                                    <Tooltip
-                                                        labelFormatter={(value) =>
-                                                            dayjs(value).format(
-                                                                'YYYY-MM-DD HH:mm:ss',
-                                                            )
-                                                        }
-                                                    />
-                                                    <Legend />
-                                                    <Area
-                                                        yAxisId="left"
-                                                        type="monotone"
-                                                        dataKey="engine_rpm"
-                                                        stroke={COLORS[0]}
-                                                        fill={`url(#rpmGradient-${vehicle.id})`}
-                                                        strokeWidth={2.5}
-                                                        name="RPM"
-                                                    />
-                                                    <Line
-                                                        yAxisId="right"
-                                                        type="monotone"
-                                                        dataKey="vehicle_speed_kmh"
-                                                        stroke={COLORS[7]}
-                                                        strokeWidth={2.5}
-                                                        dot={false}
-                                                        name="Vitesse km/h"
-                                                    />
-                                                </AreaChart>
-                                            </ResponsiveContainer>
-                                        </ModernChartSection>
-                                    </div>
+                                                        <XAxis
+                                                            dataKey="timestamp"
+                                                            tickFormatter={formatTime}
+                                                            tick={{
+                                                                fontSize: 12,
+                                                                fill: '#64748b',
+                                                            }}
+                                                            interval="preserveStartEnd"
+                                                            tickCount={8}
+                                                            minTickGap={24}
+                                                        />
 
-                                    <div className="col-span-12 lg:col-span-6">
-                                        <ModernChartSection
-                                            title="Fuel trims and MAF"
-                                            height={320}
-                                        >
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <LineChart data={dashboard.charts.trimsMaf}>
-                                                    <CartesianGrid
-                                                        strokeDasharray="3 3"
-                                                        vertical={false}
-                                                    />
-                                                    <XAxis
-                                                        dataKey="timestamp"
-                                                        tickFormatter={formatTime}
-                                                        tick={{ fontSize: 12 }}
-                                                    />
-                                                    <YAxis
-                                                        yAxisId="left"
-                                                        tick={{ fontSize: 12 }}
-                                                    />
-                                                    <YAxis
-                                                        yAxisId="right"
-                                                        orientation="right"
-                                                        tick={{ fontSize: 12 }}
-                                                    />
-                                                    <Tooltip
-                                                        labelFormatter={(value) =>
-                                                            dayjs(value).format(
-                                                                'YYYY-MM-DD HH:mm:ss',
-                                                            )
-                                                        }
-                                                    />
-                                                    <Legend />
-                                                    <Line
-                                                        yAxisId="left"
-                                                        type="monotone"
-                                                        dataKey="short_fuel_trim_pct"
-                                                        stroke="#7dd3fc"
-                                                        strokeWidth={2.5}
-                                                        dot={false}
-                                                        name="Short trim %"
-                                                    />
-                                                    <Line
-                                                        yAxisId="left"
-                                                        type="monotone"
-                                                        dataKey="long_fuel_trim_pct"
-                                                        stroke="#fbbf24"
-                                                        strokeWidth={2.5}
-                                                        dot={false}
-                                                        name="Long trim %"
-                                                    />
-                                                    <Line
-                                                        yAxisId="right"
-                                                        type="monotone"
-                                                        dataKey="maf_airflow_gs"
-                                                        stroke="#6ee7b7"
-                                                        strokeWidth={2.5}
-                                                        dot={false}
-                                                        name="MAF g/s"
-                                                    />
-                                                </LineChart>
-                                            </ResponsiveContainer>
-                                        </ModernChartSection>
+                                                        <YAxis
+                                                            yAxisId="left"
+                                                            tick={{
+                                                                fontSize: 12,
+                                                                fill: '#64748b',
+                                                            }}
+                                                            tickFormatter={(v) =>
+                                                                `${Math.round(
+                                                                    Number(v),
+                                                                )}%`
+                                                            }
+                                                            width={50}
+                                                            domain={[-10, 10]}
+                                                        />
+
+                                                        <YAxis
+                                                            yAxisId="right"
+                                                            orientation="right"
+                                                            tick={{
+                                                                fontSize: 12,
+                                                                fill: '#64748b',
+                                                            }}
+                                                            tickFormatter={(v) =>
+                                                                `${Number(v).toFixed(1)}`
+                                                            }
+                                                            width={50}
+                                                        />
+
+                                                        <Tooltip
+                                                            formatter={(
+                                                                value: any,
+                                                                name: any,
+                                                            ) => {
+                                                                const n =
+                                                                    Number(value)
+
+                                                                if (
+                                                                    name ===
+                                                                    'MAF g/s'
+                                                                ) {
+                                                                    return [
+                                                                        `${n.toFixed(
+                                                                            2,
+                                                                        )} g/s`,
+                                                                        name,
+                                                                    ]
+                                                                }
+
+                                                                return [
+                                                                    `${n.toFixed(
+                                                                        2,
+                                                                    )} %`,
+                                                                    name,
+                                                                ]
+                                                            }}
+                                                        />
+
+                                                        <Legend
+                                                            iconType="circle"
+                                                            iconSize={8}
+                                                        />
+
+                                                        <Line
+                                                            yAxisId="right"
+                                                            type="monotone"
+                                                            dataKey="maf_airflow_gs"
+                                                            stroke="#10b981"
+                                                            strokeWidth={2.5}
+                                                            name="MAF g/s"
+                                                            dot={false}
+                                                        />
+
+                                                        <Line
+                                                            yAxisId="left"
+                                                            type="monotone"
+                                                            dataKey="short_fuel_trim_pct"
+                                                            stroke="#3b82f6"
+                                                            strokeWidth={1.2}
+                                                            strokeOpacity={0.4}
+                                                            name="Short trim %"
+                                                            dot={false}
+                                                        />
+
+                                                        <Line
+                                                            yAxisId="left"
+                                                            type="monotone"
+                                                            dataKey="long_fuel_trim_pct"
+                                                            stroke="#f59e0b"
+                                                            strokeWidth={1.2}
+                                                            strokeOpacity={0.4}
+                                                            name="Long trim %"
+                                                            dot={false}
+                                                        />
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            </ModernChartSection>
+                                        </div>
+
+                                        <div className="col-span-12 lg:col-span-6">
+                                            <ModernChartSection
+                                                title="RPM and speed"
+                                                height={320}
+                                            >
+                                                <ResponsiveContainer
+                                                    width="100%"
+                                                    height="100%"
+                                                >
+                                                    <AreaChart
+                                                        data={sampledRpmSpeed}
+                                                    >
+                                                        <defs>
+                                                            <linearGradient
+                                                                id={`rpmGradient-${vehicle.id}`}
+                                                                x1="0"
+                                                                y1="0"
+                                                                x2="0"
+                                                                y2="1"
+                                                            >
+                                                                <stop
+                                                                    offset="5%"
+                                                                    stopColor={
+                                                                        COLORS[0]
+                                                                    }
+                                                                    stopOpacity={
+                                                                        0.3
+                                                                    }
+                                                                />
+                                                                <stop
+                                                                    offset="95%"
+                                                                    stopColor={
+                                                                        COLORS[0]
+                                                                    }
+                                                                    stopOpacity={
+                                                                        0.02
+                                                                    }
+                                                                />
+                                                            </linearGradient>
+                                                        </defs>
+
+                                                        <XAxis
+                                                            dataKey="timestamp"
+                                                            tickFormatter={
+                                                                formatTime
+                                                            }
+                                                            tick={{
+                                                                fontSize: 12,
+                                                                fill: '#64748b',
+                                                            }}
+                                                            interval="preserveStartEnd"
+                                                            tickCount={8}
+                                                            minTickGap={24}
+                                                            axisLine={{
+                                                                stroke: '#cbd5e1',
+                                                                strokeWidth: 1,
+                                                            }}
+                                                            tickLine={{
+                                                                stroke: '#cbd5e1',
+                                                            }}
+                                                        />
+
+                                                        <YAxis
+                                                            yAxisId="left"
+                                                            tick={{
+                                                                fontSize: 12,
+                                                                fill: '#64748b',
+                                                            }}
+                                                            tickFormatter={(v) =>
+                                                                Math.round(
+                                                                    Number(v),
+                                                                ).toLocaleString()
+                                                            }
+                                                            width={60}
+                                                            axisLine={{
+                                                                stroke: '#cbd5e1',
+                                                                strokeWidth: 1,
+                                                            }}
+                                                            tickLine={{
+                                                                stroke: '#cbd5e1',
+                                                            }}
+                                                        />
+
+                                                        <YAxis
+                                                            yAxisId="right"
+                                                            orientation="right"
+                                                            tick={{
+                                                                fontSize: 12,
+                                                                fill: '#64748b',
+                                                            }}
+                                                            tickFormatter={(v) =>
+                                                                Math.round(
+                                                                    Number(v),
+                                                                ).toString()
+                                                            }
+                                                            width={55}
+                                                            axisLine={{
+                                                                stroke: '#cbd5e1',
+                                                                strokeWidth: 1,
+                                                            }}
+                                                            tickLine={{
+                                                                stroke: '#cbd5e1',
+                                                            }}
+                                                        />
+
+                                                        <Tooltip
+                                                            labelFormatter={(
+                                                                value,
+                                                            ) =>
+                                                                dayjs(
+                                                                    String(value),
+                                                                ).format(
+                                                                    'YYYY-MM-DD HH:mm:ss',
+                                                                )
+                                                            }
+                                                            formatter={(
+                                                                value:
+                                                                    | ValueType
+                                                                    | undefined,
+                                                                name:
+                                                                    | NameType
+                                                                    | undefined,
+                                                            ) => {
+                                                                if (
+                                                                    value ===
+                                                                    undefined
+                                                                ) {
+                                                                    return [
+                                                                        '',
+                                                                        String(
+                                                                            name,
+                                                                        ),
+                                                                    ]
+                                                                }
+
+                                                                const n =
+                                                                    Number(value)
+                                                                const label =
+                                                                    String(name)
+
+                                                                if (
+                                                                    label ===
+                                                                    'Vitesse km/h'
+                                                                ) {
+                                                                    return [
+                                                                        `${Math.round(
+                                                                            n,
+                                                                        )} km/h`,
+                                                                        label,
+                                                                    ]
+                                                                }
+
+                                                                return [
+                                                                    `${Math.round(
+                                                                        n,
+                                                                    ).toLocaleString()} tr/min`,
+                                                                    label,
+                                                                ]
+                                                            }}
+                                                            contentStyle={{
+                                                                borderRadius: 12,
+                                                                border: '1px solid rgba(148,163,184,0.2)',
+                                                                backgroundColor:
+                                                                    'rgba(255,255,255,0.95)',
+                                                                boxShadow:
+                                                                    '0 4px 12px rgba(0,0,0,0.1)',
+                                                            }}
+                                                        />
+
+                                                        <Legend
+                                                            wrapperStyle={{
+                                                                paddingTop: 8,
+                                                            }}
+                                                            iconType="circle"
+                                                            iconSize={10}
+                                                        />
+
+                                                        <Area
+                                                            yAxisId="left"
+                                                            type="monotone"
+                                                            dataKey="engine_rpm"
+                                                            stroke={COLORS[0]}
+                                                            fill={`url(#rpmGradient-${vehicle.id})`}
+                                                            strokeWidth={2.5}
+                                                            name="RPM"
+                                                            dot={false}
+                                                            activeDot={{
+                                                                r: 5,
+                                                                strokeWidth: 2,
+                                                            }}
+                                                        />
+
+                                                        <Line
+                                                            yAxisId="right"
+                                                            type="monotone"
+                                                            dataKey="vehicle_speed_kmh"
+                                                            stroke={COLORS[7]}
+                                                            strokeWidth={2.5}
+                                                            dot={false}
+                                                            activeDot={{
+                                                                r: 5,
+                                                                strokeWidth: 2,
+                                                            }}
+                                                            name="Vitesse km/h"
+                                                        />
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            </ModernChartSection>
+                                        </div>
+
+                                        <div className="col-span-12 lg:col-span-6">
+                                            <CombinedMonitorChart
+                                                dashboard={dashboard}
+                                            />
+                                        </div>
                                     </div>
-                                </div>
+                                ) : currentView === 'maintenance' ? (
+                                    <MaintenanceAnalyticsSection
+                                        maintenance={maintenance}
+                                    />
+                                ) : (
+                                    <DtcAnalyticsSection dtc={dtc} />
+                                )}
                             </div>
                         </Card>
                     )
@@ -357,15 +722,15 @@ const VehicleQuickStats = ({
         <div className="rounded-3xl border border-gray-200 bg-white/70 dark:border-gray-700 dark:bg-gray-900/40">
             <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-0">
                 <SummarySegment
-                    title=" Max RPM"
-                    value={`${dashboard.summary.rpmMax} tr/min`}
+                    title="Max RPM"
+                    value={`${Math.round(dashboard.summary.rpmMax).toLocaleString()} tr/min`}
                     icon={<TbGauge />}
                     iconClass="bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
                     className="border-b border-r-0 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
                 />
                 <SummarySegment
                     title="Max Speed"
-                    value={`${dashboard.summary.speedMax} km/h`}
+                    value={`${dashboard.summary.speedMax.toFixed(1)} km/h`}
                     icon={<TbRoute />}
                     iconClass="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
                     className="border-b md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
@@ -379,10 +744,188 @@ const VehicleQuickStats = ({
                 />
                 <SummarySegment
                     title="Temperature"
-                    value={`${dashboard.summary.coolantAvg} °C`}
+                    value={`${dashboard.summary.coolantAvg.toFixed(1)} °C`}
                     icon={<TbTemperature />}
                     iconClass="bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
                 />
+            </div>
+        </div>
+    )
+}
+
+const MaintenanceQuickStats = ({
+    maintenance,
+}: {
+    maintenance: MaintenanceAnalyticsResponse | null
+}) => {
+    if (!maintenance) {
+        return (
+            <div className="rounded-3xl border border-gray-200 bg-white/70 p-6 dark:border-gray-700 dark:bg-gray-900/40">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Aucune donnée de maintenance disponible.
+                </p>
+            </div>
+        )
+    }
+
+    return (
+        <div className="rounded-3xl border border-gray-200 bg-white/70 dark:border-gray-700 dark:bg-gray-900/40">
+            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-0">
+                <SummarySegment
+                    title="Total cost"
+                    value={`${maintenance.totalCost.toFixed(2)} TND`}
+                    icon={<TbCurrencyDollar />}
+                    iconClass="bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+                    className="border-b border-r-0 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
+                />
+                <SummarySegment
+                    title="Maintenances"
+                    value={maintenance.totalRecords}
+                    icon={<TbTool />}
+                    iconClass="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
+                    className="border-b md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
+                />
+                <SummarySegment
+                    title="Overdue"
+                    value={maintenance.overdueCount}
+                    icon={<TbAlertTriangle />}
+                    iconClass="bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
+                    className="border-b border-r-0 md:border-b-0 md:ltr:border-r md:rtl:border-l border-gray-200 dark:border-gray-700"
+                />
+                <SummarySegment
+                    title="Next due date"
+                    value={
+                        maintenance.nextMaintenance?.next_due_date
+                            ? dayjs(
+                                  maintenance.nextMaintenance.next_due_date,
+                              ).format('YYYY-MM-DD')
+                            : 'N/A'
+                    }
+                    icon={<TbCalendarEvent />}
+                    iconClass="bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
+                />
+            </div>
+        </div>
+    )
+}
+
+const DtcQuickStats = ({
+    dtc,
+}: {
+    dtc: DtcAnalyticsResponse | null
+}) => {
+    if (!dtc) {
+        return (
+            <div className="rounded-3xl border border-gray-200 bg-white/70 p-6 dark:border-gray-700 dark:bg-gray-900/40">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Aucune donnée DTC disponible.
+                </p>
+            </div>
+        )
+    }
+
+    const alertLevel =
+        dtc.summary.highSeverityCount > 0
+            ? 'Critical alerts detected'
+            : dtc.summary.milActiveCount > 0
+              ? 'Warnings active'
+              : 'System stable'
+
+    return (
+        <div className="rounded-3xl border border-red-100 bg-gradient-to-br from-red-50 via-white to-orange-50 p-5 shadow-sm dark:border-red-900/30 dark:bg-gray-900">
+            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                    <h4 className="text-base font-semibold text-gray-900 dark:text-white">
+                        Diagnostic Trouble Codes
+                    </h4>
+                 
+                </div>
+
+                <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                    {alertLevel}
+                </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <DtcStatCard
+                    title="Total DTC"
+                    value={dtc.summary.totalEntries}
+                    subtitle="Tous les codes détectés"
+                    icon={<TbPlaylistX />}
+                    tone="blue"
+                />
+                <DtcStatCard
+                    title="MIL active"
+                    value={dtc.summary.milActiveCount}
+                    subtitle="Voyant moteur actif"
+                    icon={<TbEngine />}
+                    tone="red"
+                />
+                <DtcStatCard
+                    title="High severity"
+                    value={dtc.summary.highSeverityCount}
+                    subtitle="Défauts critiques"
+                    icon={<TbAlertTriangle />}
+                    tone="orange"
+                />
+                <DtcStatCard
+                    title="Pending"
+                    value={dtc.summary.pendingCount}
+                    subtitle="Défauts à confirmer"
+                    icon={<TbTool />}
+                    tone="violet"
+                />
+            </div>
+        </div>
+    )
+}
+
+type DtcStatCardProps = {
+    title: string
+    value: string | number
+    subtitle: string
+    icon: ReactNode
+    tone: 'blue' | 'red' | 'orange' | 'violet'
+}
+
+const DtcStatCard = ({
+    title,
+    value,
+    subtitle,
+    icon,
+    tone,
+}: DtcStatCardProps) => {
+    const toneMap = {
+        blue: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300',
+        red: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
+        orange: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
+        violet: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
+    }
+
+    return (
+        <div className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur dark:border-gray-800 dark:bg-gray-950/40">
+            <div className="flex items-start justify-between gap-3">
+                <div>
+                    <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                        {title}
+                    </div>
+                    <div className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+                        {value}
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        {subtitle}
+                    </div>
+                </div>
+
+                <div
+                    className={classNames(
+                        'flex h-12 w-12 items-center justify-center rounded-2xl text-2xl',
+                        toneMap[tone],
+                    )}
+                >
+                    {icon}
+                </div>
             </div>
         </div>
     )
@@ -425,6 +968,68 @@ const SummarySegment = ({
     )
 }
 
+const SeverityBadge = ({ severity }: { severity: string }) => {
+    const styles: Record<string, string> = {
+        low: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-800',
+        medium: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-800',
+        high: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/15 dark:text-red-300 dark:border-red-800',
+    }
+
+    return (
+        <span
+            className={classNames(
+                'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize',
+                styles[severity] ||
+                    'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600',
+            )}
+        >
+            {severity}
+        </span>
+    )
+}
+
+const StatusBadge = ({ status }: { status: string }) => {
+    const styles: Record<string, string> = {
+        pending: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/15 dark:text-yellow-300 dark:border-yellow-800',
+        confirmed: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-800',
+        permanent: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/15 dark:text-red-300 dark:border-red-800',
+        cleared: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600',
+    }
+
+    return (
+        <span
+            className={classNames(
+                'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize',
+                styles[status] ||
+                    'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600',
+            )}
+        >
+            {status}
+        </span>
+    )
+}
+
+const MilBadge = ({ active }: { active: boolean }) => {
+    return (
+        <span
+            className={classNames(
+                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold',
+                active
+                    ? 'border-red-200 bg-red-100 text-red-700 dark:border-red-800 dark:bg-red-500/15 dark:text-red-300'
+                    : 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
+            )}
+        >
+            <span
+                className={classNames(
+                    'h-1.5 w-1.5 rounded-full',
+                    active ? 'bg-red-500' : 'bg-emerald-500',
+                )}
+            />
+            {active ? 'Active' : 'Off'}
+        </span>
+    )
+}
+
 const CombinedMonitorChart = ({
     dashboard,
 }: {
@@ -432,43 +1037,58 @@ const CombinedMonitorChart = ({
 }) => {
     const [category, setCategory] = useState<CombinedMetricFilter>('charge')
 
+    const sampledLoadThrottle = useMemo(
+        () => downsample(dashboard.charts.loadThrottle),
+        [dashboard.charts.loadThrottle],
+    )
+
+    const sampledTemperatures = useMemo(
+        () => downsample(dashboard.charts.temperatures),
+        [dashboard.charts.temperatures],
+    )
+
     const labels = useMemo(
         () =>
-            dashboard.charts.loadThrottle.map((item) =>
-                dayjs(item.timestamp).format('HH:mm'),
-            ),
-        [dashboard.charts.loadThrottle],
+            (category === 'charge'
+                ? sampledLoadThrottle
+                : sampledTemperatures
+            ).map((item) => dayjs(item.timestamp).format('HH:mm')),
+        [category, sampledLoadThrottle, sampledTemperatures],
     )
 
     const series = useMemo(() => {
         const chargeSeries = {
             name: 'Motor load %',
-            type: 'column' as const,
-            data: dashboard.charts.loadThrottle.map((item) => item.engine_load_pct),
-            color: '#7dd3fc',
+            type: 'line' as const,
+            data: sampledLoadThrottle.map((item) =>
+                parseFloat(item.engine_load_pct.toFixed(1)),
+            ),
+            color: '#3b82f6',
         }
 
         const throttleSeries = {
             name: 'Papillon %',
-            type: 'column' as const,
-            data: dashboard.charts.loadThrottle.map(
-                (item) => item.throttle_position_pct,
+            type: 'line' as const,
+            data: sampledLoadThrottle.map((item) =>
+                parseFloat(item.throttle_position_pct.toFixed(1)),
             ),
-            color: '#bee9d3d9',
+            color: '#6ee7b7',
         }
 
         const coolantSeries = {
             name: 'Liquide °C',
             type: 'line' as const,
-            data: dashboard.charts.temperatures.map((item) => item.coolant_temp_c),
+            data: sampledTemperatures.map((item) =>
+                parseFloat(item.coolant_temp_c.toFixed(1)),
+            ),
             color: '#7dd3fc',
         }
 
         const intakeSeries = {
             name: 'Admission °C',
             type: 'line' as const,
-            data: dashboard.charts.temperatures.map(
-                (item) => item.intake_air_temp_c,
+            data: sampledTemperatures.map((item) =>
+                parseFloat(item.intake_air_temp_c.toFixed(1)),
             ),
             color: '#fbbf24',
         }
@@ -476,16 +1096,16 @@ const CombinedMonitorChart = ({
         const ambientSeries = {
             name: 'Ambiante °C',
             type: 'line' as const,
-            data: dashboard.charts.temperatures.map((item) => item.ambient_temp_c),
+            data: sampledTemperatures.map((item) =>
+                parseFloat(item.ambient_temp_c.toFixed(1)),
+            ),
             color: '#6ee7b7',
         }
 
-        if (category === 'charge') {
-            return [chargeSeries, throttleSeries]
-        }
-
-        return [coolantSeries, intakeSeries, ambientSeries]
-    }, [category, dashboard])
+        return category === 'charge'
+            ? [chargeSeries, throttleSeries]
+            : [coolantSeries, intakeSeries, ambientSeries]
+    }, [category, sampledLoadThrottle, sampledTemperatures])
 
     return (
         <ModernChartSection
@@ -498,41 +1118,58 @@ const CombinedMonitorChart = ({
                     onChange={(val) => setCategory(val as CombinedMetricFilter)}
                 >
                     <Segment.Item value="charge">Load</Segment.Item>
-                    <Segment.Item value="temperatures">Temperatures</Segment.Item>
+                    <Segment.Item value="temperatures">
+                        Temperatures
+                    </Segment.Item>
                 </Segment>
             }
-            height={380}
+            height={320}
         >
             <ApexChart
                 type="line"
-                height={380}
+                height={320}
                 series={series}
                 options={{
                     chart: {
                         type: 'line',
                         stacked: false,
-                        zoom: {
-                            enabled: false,
-                        },
-                        toolbar: {
-                            show: false,
-                        },
+                        zoom: { enabled: false },
+                        toolbar: { show: false },
+                        animations: { enabled: false },
+                        background: 'transparent',
                     },
                     stroke: {
-                        width: category === 'charge' ? [0, 0] : [2.5, 2.5, 2.5],
+                        width: category === 'charge' ? [3, 3] : [2.5, 2.5, 2.5],
                         curve: 'smooth',
+                        lineCap: 'round',
                     },
-                    dataLabels: {
-                        enabled: false,
-                    },
+                    dataLabels: { enabled: false },
                     legend: {
                         show: true,
                         position: 'top',
+                        horizontalAlign: 'center',
                     },
                     labels,
+                    grid: {
+                        show: false,
+                    },
                     xaxis: {
                         labels: {
                             rotate: -15,
+                            style: {
+                                fontSize: '11px',
+                                colors: ['#64748b'],
+                            },
+                        },
+                        tickAmount: 10,
+                        axisBorder: {
+                            show: true,
+                            color: '#cbd5e1',
+                            height: 1,
+                        },
+                        axisTicks: {
+                            show: true,
+                            color: '#cbd5e1',
                         },
                     },
                     yaxis:
@@ -542,30 +1179,319 @@ const CombinedMonitorChart = ({
                                       title: {
                                           text: 'Pourcentage %',
                                       },
+                                      min:
+                                          Math.min(
+                                              ...series.flatMap((s) => s.data),
+                                          ) - 5,
+                                      max:
+                                          Math.max(
+                                              ...series.flatMap((s) => s.data),
+                                          ) + 5,
+                                      tickAmount: 5,
+                                      labels: {
+                                          formatter: (val: number) =>
+                                              `${Math.round(val)}%`,
+                                          style: {
+                                              fontSize: '11px',
+                                              colors: ['#64748b'],
+                                          },
+                                      },
                                   },
                               ]
                             : [
                                   {
                                       title: {
-                                          text: 'Temperatures °C',
+                                          text: 'Températures °C',
+                                      },
+                                      labels: {
+                                          formatter: (val: number) =>
+                                              `${Math.round(val)}`,
+                                          style: {
+                                              fontSize: '11px',
+                                              colors: ['#64748b'],
+                                          },
                                       },
                                   },
                               ],
-                    plotOptions: {
-                        bar: {
-                            columnWidth: '34px',
-                            borderRadius: 6,
-                            borderRadiusApplication: 'end',
+                    markers: {
+                        size: 0,
+                        hover: {
+                            size: category === 'charge' ? 6 : 5,
+                            sizeOffset: 2,
                         },
+                        strokeWidth: 2,
                     },
                     tooltip: {
                         shared: true,
                         intersect: false,
+                        style: {
+                            fontSize: '12px',
+                        },
+                        y: {
+                            formatter: (val: number) =>
+                                category === 'charge'
+                                    ? `${Number(val).toFixed(1)}%`
+                                    : `${Number(val).toFixed(1)} °C`,
+                        },
+                    },
+                    theme: {
+                        mode: 'light',
                     },
                 }}
             />
         </ModernChartSection>
     )
+}
+
+const MaintenanceAnalyticsSection = ({
+    maintenance,
+}: {
+    maintenance: MaintenanceAnalyticsResponse | null
+}) => {
+    if (!maintenance) {
+        return (
+            <div className="rounded-3xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-gray-700/80 dark:bg-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Aucune analytics de maintenance disponible.
+                </p>
+            </div>
+        )
+    }
+
+    return (
+        <div className="grid grid-cols-12 gap-4">
+            <div className="col-span-12 lg:col-span-8">
+                <ModernChartSection
+                    title="Maintenance cost per month"
+                    height={320}
+                >
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={maintenance.costChart}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="month" />
+                            <YAxis />
+                            <Tooltip
+                                formatter={(value: any) => [
+                                    `${Number(value).toFixed(2)} TND`,
+                                    'Cost',
+                                ]}
+                            />
+                            <Legend />
+                            <Bar
+                                dataKey="cost"
+                                name="Cost"
+                                fill="#7dd3fc"
+                                radius={[8, 8, 0, 0]}
+                            />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </ModernChartSection>
+            </div>
+
+            <div className="col-span-12 lg:col-span-4">
+                <ModernChartSection title="Next maintenance" height={320}>
+                    <div className="flex h-full flex-col justify-center gap-4">
+                        <div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                Service type
+                            </div>
+                            <div className="text-base font-semibold text-gray-900 dark:text-white">
+                                {maintenance.nextMaintenance?.service_type ||
+                                    'N/A'}
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                Service date
+                            </div>
+                            <div className="text-base font-semibold text-gray-900 dark:text-white">
+                                {maintenance.nextMaintenance?.service_date
+                                    ? dayjs(
+                                          maintenance.nextMaintenance
+                                              .service_date,
+                                      ).format('YYYY-MM-DD')
+                                    : 'N/A'}
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                Next due date
+                            </div>
+                            <div className="text-base font-semibold text-gray-900 dark:text-white">
+                                {maintenance.nextMaintenance?.next_due_date
+                                    ? dayjs(
+                                          maintenance.nextMaintenance
+                                              .next_due_date,
+                                      ).format('YYYY-MM-DD')
+                                    : 'N/A'}
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                Next due km
+                            </div>
+                            <div className="text-base font-semibold text-gray-900 dark:text-white">
+                                {maintenance.nextMaintenance?.next_due_km ??
+                                    'N/A'}
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                Overdue maintenances
+                            </div>
+                            <div className="text-base font-semibold text-red-600">
+                                {maintenance.overdueCount}
+                            </div>
+                        </div>
+                    </div>
+                </ModernChartSection>
+            </div>
+        </div>
+    )
+}
+
+const DtcAnalyticsSection = ({
+    dtc,
+}: {
+    dtc: DtcAnalyticsResponse | null
+}) => {
+    if (!dtc) {
+        return (
+            <div className="rounded-3xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-gray-700/80 dark:bg-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Aucune analytics DTC disponible.
+                </p>
+            </div>
+        )
+    }
+
+    return (
+        <div className="grid grid-cols-12 gap-4">
+            <div className="col-span-12 lg:col-span-8">
+                <ModernChartSection
+                    title="DTC timeline"
+                    subtitle=""
+                    height={320}
+                >
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={dtc.charts.timeline}>
+                            <defs>
+                                <linearGradient
+                                    id="dtcTimeline"
+                                    x1="0"
+                                    y1="0"
+                                    x2="0"
+                                    y2="1"
+                                >
+                                    <stop
+                                        offset="5%"
+                                        stopColor="#ef4444"
+                                        stopOpacity={0.28}
+                                    />
+                                    <stop
+                                        offset="95%"
+                                        stopColor="#ef4444"
+                                        stopOpacity={0.03}
+                                    />
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <Tooltip />
+                            <Legend />
+                            <Area
+                                type="monotone"
+                                dataKey="count"
+                                stroke="#ef4444"
+                                fill="url(#dtcTimeline)"
+                                strokeWidth={2.5}
+                                name="DTC count"
+                            />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </ModernChartSection>
+            </div>
+
+            <div className="col-span-12 lg:col-span-4">
+                <ModernChartSection
+                    title="Severity"
+                    subtitle=" "
+                    height={320}
+                >
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dtc.charts.severityChart}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar
+                                dataKey="value"
+                                fill="#f59e0b"
+                                name="Count"
+                                radius={[10, 10, 0, 0]}
+                            />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </ModernChartSection>
+            </div>
+
+            <div className="col-span-12 lg:col-span-6">
+                <ModernChartSection
+                    title="Top DTC codes"
+                    subtitle=""
+                    height={320}
+                >
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dtc.charts.topCodes}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="code" tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar
+                                dataKey="count"
+                                fill="#dc2626"
+                                name="Occurrences"
+                                radius={[10, 10, 0, 0]}
+                            />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </ModernChartSection>
+            </div>
+
+            <div className="col-span-12 lg:col-span-6">
+                <ModernChartSection
+                    title="Status"
+                    subtitle=""
+                    height={320}
+                >
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dtc.charts.statusChart}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar
+                                dataKey="value"
+                                fill="#6366f1"
+                                name="Count"
+                                radius={[10, 10, 0, 0]}
+                            />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </ModernChartSection>
+            </div>
+
+            
+    
+        </div>    )
 }
 
 type ModernChartSectionProps = {
@@ -584,21 +1510,26 @@ const ModernChartSection = ({
     headerExtra,
 }: ModernChartSectionProps) => {
     return (
-        <div className="rounded-3xl border border-gray-200/80 bg-white p-5 shadow-sm dark:border-gray-700/80 dark:bg-gray-900">
+        <div className="rounded-[28px] border border-gray-200/70 bg-white p-5 shadow-sm shadow-gray-200/40 dark:border-gray-700/70 dark:bg-gray-900 dark:shadow-none">
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <h4 className="text-base font-semibold text-gray-900 dark:text-white">
+                    <h4 className="text-base font-semibold tracking-tight text-gray-900 dark:text-white">
                         {title}
                     </h4>
                     {subtitle && (
-                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
                             {subtitle}
                         </p>
                     )}
                 </div>
                 {headerExtra ? <div>{headerExtra}</div> : null}
             </div>
-            <div style={{ width: '100%', height: `${height}px` }}>{children}</div>
+            <div
+                className="rounded-2xl bg-gradient-to-b from-gray-50 to-white p-2 dark:from-gray-900 dark:to-gray-950"
+                style={{ width: '100%', height: `${height}px` }}
+            >
+                {children}
+            </div>
         </div>
     )
 }
