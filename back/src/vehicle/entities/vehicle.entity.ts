@@ -11,7 +11,7 @@ import {
 import { User } from 'src/users/entities/user.entity';
 import { SensorReading } from 'src/sensor-reading/entities/sensor-reading.entity';
 import { Upload } from 'src/upload/entities/upload.entity';
-
+import { MaintenanceRecord } from '../../maintenance/entities/maintenance.entity';
 @Entity('vehicle')
 export class Vehicle {
   @PrimaryGeneratedColumn('uuid')
@@ -64,7 +64,8 @@ export class Vehicle {
    @OneToMany(() => SensorReading, (reading) => reading.vehicle)
     sensorReadings!: SensorReading[];
     dtcEntries: any;
-    maintenanceRecords: any;
+    @OneToMany(() => MaintenanceRecord, (maintenance) => maintenance.vehicle)
+maintenanceRecords!: MaintenanceRecord[];
 
     @OneToMany(() => Upload, (upload) => upload.vehicle)
     uploads!: Upload[];

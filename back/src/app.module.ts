@@ -10,7 +10,8 @@ import { SensorReadingModule } from './sensor-reading/sensor-reading.module';
 import { DtcModule } from './dtc/dtc.module';
 import { UploadModule } from './upload/upload.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
-
+import { AlertsModule } from './alerts/alerts.module'
+import { MechanicModule } from './mechanic/mechanic.module';
  @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }), 
@@ -35,7 +36,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 
   AuthModule,
 
-  
+  AlertsModule,
 
   SensorReadingModule,
 
@@ -43,7 +44,9 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 
   UploadModule,
 
-  MaintenanceModule,],
+  MaintenanceModule,
+
+  MechanicModule,],
   controllers: [AppController],
   providers: [AppService],
 })

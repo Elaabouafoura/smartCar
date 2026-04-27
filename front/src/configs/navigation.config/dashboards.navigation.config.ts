@@ -51,6 +51,16 @@ const dashboardsNavigationConfig: NavigationTree[] = [
                 authority: [USER,ADMIN],
                 subMenu: [],
             },
+              {
+                key: 'dashboard.mechanics',
+                path: `${DASHBOARDS_PREFIX_PATH}/mechanics`,
+                title: 'Mechanics',
+                translateKey: 'nav.dashboard.mechanics',
+                icon: 'dashboardMechanics',
+                type: NAV_ITEM_TYPE_ITEM,
+                authority: [USER,ADMIN],
+                subMenu: [],
+            },
         ],
     },
 ]

@@ -1,195 +1,202 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
 import Input from '@/components/ui/Input'
-import Select, { Option as DefaultOption } from '@/components/ui/Select'
+import Select from '@/components/ui/Select'
 import { Form, FormItem } from '@/components/ui/Form'
-import {
-    TbVideo,
-    TbCheckbox,
-    TbCoffee,
-    TbCalendarStar,
-    TbPresentation,
-    TbBell,
-} from 'react-icons/tb'
-import { LuTreePalm } from 'react-icons/lu'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import uniqueId from 'lodash/uniqueId'
-import { components } from 'react-select'
-import type { Event } from '../types'
-import type { ReactNode } from 'react'
-import type { ControlProps, OptionProps } from 'react-select'
+import dayjs from 'dayjs'
+import {
+    apiGetMechanics,
+    apiGetMechanicBookings,
+    apiUpdateMaintenanceAppointment,
+} from '@/services/DashboardService'
+
+type Mechanic = {
+    id: string
+    name: string
+    specialty?: string
+}
 
 export type FormSchema = {
-    type: Event
     label: string
     time: number
+    mechanicId: string
 }
-
-type EventOption = { label: string; value: Event; color: string }
-
-const { Control } = components
-
-// eslint-disable-next-line react-refresh/only-export-components
-export const eventTypes: Record<
-    Event,
-    { label: string; icon: ReactNode; color: string }
-> = {
-    task: {
-        label: 'Task',
-        icon: <TbCheckbox />,
-        color: 'bg-purple-200 dark:bg-purple-200',
-    },
-    meeting: {
-        label: 'Meeting',
-        icon: <TbVideo />,
-        color: 'bg-sky-200 dark:bg-sky-200',
-    },
-    holiday: {
-        label: 'Enjoy your holiday',
-        icon: <LuTreePalm />,
-        color: 'bg-amber-200 dark:bg-amber-200',
-    },
-    breaks: {
-        label: 'Break',
-        icon: <TbCoffee />,
-        color: 'bg-orange-200 dark:bg-orange-200',
-    },
-    event: {
-        label: 'Event',
-        icon: <TbCalendarStar />,
-        color: 'bg-emerald-200 dark:bg-emerald-200',
-    },
-    workshops: {
-        label: 'Workshop',
-        icon: <TbPresentation />,
-        color: 'bg-rose-200 dark:bg-rose-200',
-    },
-    reminders: {
-        label: 'Reminder',
-        icon: <TbBell />,
-        color: 'bg-teal-200 dark:bg-teal-200',
-    },
-}
-
-const eventOptions: EventOption[] = [
-    { label: 'Task', value: 'task', color: 'bg-purple-200' },
-    { label: 'Meeting', value: 'meeting', color: 'bg-sky-200' },
-    { label: 'Breaks', value: 'breaks', color: 'bg-orange-200' },
-    { label: 'Event', value: 'event', color: 'bg-emerald-200' },
-    { label: 'Workshops', value: 'workshops', color: 'bg-rose-200' },
-    { label: 'Reminders', value: 'reminders', color: 'bg-teal-200' },
-]
 
 const timeOption = [
-    { value: 0, label: '12:00 AM' },
-    { value: 1, label: '1:00 AM' },
-    { value: 2, label: '2:00 AM' },
-    { value: 3, label: '3:00 AM' },
-    { value: 4, label: '4:00 AM' },
-    { value: 5, label: '5:00 AM' },
-    { value: 6, label: '6:00 AM' },
-    { value: 7, label: '7:00 AM' },
-    { value: 8, label: '8:00 AM' },
-    { value: 9, label: '9:00 AM' },
-    { value: 10, label: '10:00 AM' },
-    { value: 11, label: '11:00 AM' },
-    { value: 12, label: '12:00 PM' },
-    { value: 13, label: '1:00 PM' },
-    { value: 14, label: '2:00 PM' },
-    { value: 15, label: '3:00 PM' },
-    { value: 16, label: '4:00 PM' },
-    { value: 17, label: '5:00 PM' },
-    { value: 18, label: '6:00 PM' },
-    { value: 19, label: '7:00 PM' },
-    { value: 20, label: '8:00 PM' },
-    { value: 21, label: '9:00 PM' },
-    { value: 22, label: '10:00 PM' },
-    { value: 23, label: '11:00 PM' },
+    { value: 8, label: '08:00' },
+    { value: 9, label: '09:00' },
+    { value: 10, label: '10:00' },
+    { value: 11, label: '11:00' },
+    { value: 12, label: '12:00' },
+    { value: 13, label: '13:00' },
+    { value: 14, label: '14:00' },
+    { value: 15, label: '15:00' },
+    { value: 16, label: '16:00' },
+    { value: 17, label: '17:00' },
 ]
 
-const CustomSelectOption = (props: OptionProps<EventOption>) => {
-    return (
-        <DefaultOption<EventOption>
-            {...props}
-            customLabel={(_, label) => (
-                <span className="flex items-center gap-2">
-                    <span>{label}</span>
-                </span>
-            )}
-        />
-    )
-}
-
-const CustomControl = ({ children, ...props }: ControlProps<EventOption>) => {
-    const selected = props.getValue()[0]
-    return (
-        <Control {...props}>
-            {selected && <></>}
-            {children}
-        </Control>
-    )
-}
-
 const validationSchema = z.object({
-    type: z.union([
-        z.literal('meeting'),
-        z.literal('task'),
-        z.literal('holiday'),
-        z.literal('breaks'),
-        z.literal('event'),
-        z.literal('workshops'),
-        z.literal('reminders'),
-    ]),
-    label: z.string({ error: 'Please enter event name' }),
-    time: z.number({ error: 'Please select a time' }),
+    label: z.string().min(1, 'Nom obligatoire'),
+    time: z.number(),
+    mechanicId: z.string().min(1, 'Choisir un mécanicien'),
 })
 
 const CreateEventDialog = ({
-    onCreateEvent,
+    vehicleId,
+    maintenanceId,
+    selectedDate,
+    defaultLabel = '',
+    onCreated,
 }: {
-    onCreateEvent: (value: FormSchema & { id: string }) => void
+    vehicleId: string
+    maintenanceId: string
+    selectedDate: Date | null
+    defaultLabel?: string
+    onCreated?: () => void
 }) => {
     const [dialogOpen, setDialogOpen] = useState(false)
+    const [mechanics, setMechanics] = useState<Mechanic[]>([])
+    const [loadingMechanics, setLoadingMechanics] = useState(false)
 
     const {
         handleSubmit,
         formState: { errors, isSubmitting },
         reset,
         control,
+        watch,
     } = useForm<FormSchema>({
         resolver: zodResolver(validationSchema),
+        defaultValues: {
+            label: defaultLabel,
+            time: 9,
+            mechanicId: '',
+        },
     })
 
+    const selectedTime = watch('time')
+
+    useEffect(() => {
+        if (dialogOpen) {
+            reset({
+                label: defaultLabel,
+                time: 9,
+                mechanicId: '',
+            })
+        }
+    }, [dialogOpen, defaultLabel, reset])
+
+    useEffect(() => {
+        const loadAvailableMechanics = async () => {
+            if (!dialogOpen || !selectedDate) return
+
+            setLoadingMechanics(true)
+
+            try {
+                const allMechanics = await apiGetMechanics<Mechanic[]>()
+                const date = dayjs(selectedDate).format('YYYY-MM-DD')
+
+                const result = await Promise.all(
+                    allMechanics.map(async (mechanic) => {
+                        const bookings = await apiGetMechanicBookings<any[]>(
+                            vehicleId,
+                            mechanic.id,
+                            date,
+                        ).catch(() => [])
+
+                        const start = dayjs(selectedDate)
+                            .hour(selectedTime)
+                            .minute(0)
+                            .second(0)
+                            .millisecond(0)
+
+                        const end = start.add(1, 'hour')
+
+                        const hasConflict = bookings.some((booking) => {
+                            const bookingStart = dayjs(booking.appointmentStart)
+                            const bookingEnd = dayjs(booking.appointmentEnd)
+
+                            return (
+                                bookingStart.isBefore(end) &&
+                                bookingEnd.isAfter(start)
+                            )
+                        })
+
+                        return hasConflict ? null : mechanic
+                    }),
+                )
+
+                setMechanics(result.filter(Boolean) as Mechanic[])
+            } finally {
+                setLoadingMechanics(false)
+            }
+        }
+
+        loadAvailableMechanics()
+    }, [dialogOpen, selectedDate, selectedTime, vehicleId])
+
+    const mechanicOptions = useMemo(
+        () =>
+            mechanics.map((mechanic) => ({
+                value: mechanic.id,
+                label: mechanic.specialty
+                    ? `${mechanic.name} - ${mechanic.specialty}`
+                    : mechanic.name,
+            })),
+        [mechanics],
+    )
+
     const handleDialogClose = () => {
-        reset()
         setDialogOpen(false)
     }
 
-    const onSubmit = (value: FormSchema) => {
-        onCreateEvent({
-            id: uniqueId('schedule-event-'),
-            ...value,
+    const onSubmit = async (value: FormSchema) => {
+        if (!selectedDate) return
+
+        const start = dayjs(selectedDate)
+            .hour(value.time)
+            .minute(0)
+            .second(0)
+            .millisecond(0)
+
+        const end = start.add(1, 'hour')
+
+        await apiUpdateMaintenanceAppointment(vehicleId, maintenanceId, {
+            mechanicId: value.mechanicId,
+            appointmentStart: start.toISOString(),
+            appointmentEnd: end.toISOString(),
         })
+
+        onCreated?.()
         handleDialogClose()
     }
 
     return (
         <>
             <Button block onClick={() => setDialogOpen(true)}>
-                Add event
+                Fix an appointment
             </Button>
+
             <Dialog
                 isOpen={dialogOpen}
                 onClose={handleDialogClose}
                 onRequestClose={handleDialogClose}
             >
-                <h4>New event</h4>
+                <h4>Fix now</h4>
+
+                <div className="mt-2 text-sm text-gray-500">
+                    Selected date:{' '}
+                    {selectedDate
+                        ? dayjs(selectedDate).format('YYYY-MM-DD')
+                        : 'Aucune date'}
+                </div>
+
                 <Form className="mt-6" onSubmit={handleSubmit(onSubmit)}>
                     <FormItem
-                        label="Event name"
+                        label="Name"
                         invalid={Boolean(errors.label)}
                         errorMessage={errors.label?.message}
                     >
@@ -200,42 +207,13 @@ const CreateEventDialog = ({
                                 <Input
                                     type="text"
                                     autoComplete="off"
-                                    placeholder="Event name"
+                                    placeholder="Maintenance"
                                     {...field}
                                 />
                             )}
                         />
                     </FormItem>
-                    <FormItem
-                        label="Event type"
-                        invalid={Boolean(errors.type)}
-                        errorMessage={
-                            errors.type?.message && 'Please select a type'
-                        }
-                    >
-                        <Controller
-                            name="type"
-                            control={control}
-                            render={({ field }) => (
-                                <Select<EventOption>
-                                    options={eventOptions}
-                                    {...field}
-                                    components={{
-                                        Option: CustomSelectOption,
-                                        Control: CustomControl,
-                                    }}
-                                    placeholder="Event type"
-                                    value={eventOptions.filter(
-                                        (option) =>
-                                            option.value === field.value,
-                                    )}
-                                    onChange={(option) =>
-                                        field.onChange(option?.value)
-                                    }
-                                />
-                            )}
-                        />
-                    </FormItem>
+
                     <FormItem
                         label="Time"
                         invalid={Boolean(errors.time)}
@@ -247,26 +225,52 @@ const CreateEventDialog = ({
                             render={({ field }) => (
                                 <Select
                                     options={timeOption}
-                                    {...field}
-                                    placeholder="Select a time..."
-                                    value={timeOption.filter(
+                                    placeholder="Choisir heure"
+                                    value={timeOption.find(
                                         (option) =>
                                             option.value === field.value,
                                     )}
-                                    onChange={(option) =>
+                                    onChange={(option: any) =>
                                         field.onChange(option?.value)
                                     }
                                 />
                             )}
                         />
                     </FormItem>
+
+                    <FormItem
+                        label="Mechanic available"
+                        invalid={Boolean(errors.mechanicId)}
+                        errorMessage={errors.mechanicId?.message}
+                    >
+                        <Controller
+                            name="mechanicId"
+                            control={control}
+                            render={({ field }) => (
+                                <Select
+                                    isLoading={loadingMechanics}
+                                    options={mechanicOptions}
+                                    placeholder="Choose mechanic"
+                                    value={mechanicOptions.find(
+                                        (option) =>
+                                            option.value === field.value,
+                                    )}
+                                    onChange={(option: any) =>
+                                        field.onChange(option?.value)
+                                    }
+                                />
+                            )}
+                        />
+                    </FormItem>
+
                     <Button
                         block
                         variant="solid"
                         type="submit"
                         loading={isSubmitting}
+                        disabled={!selectedDate}
                     >
-                        Create
+                        Fix now
                     </Button>
                 </Form>
             </Dialog>

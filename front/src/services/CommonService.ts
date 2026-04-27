@@ -36,3 +36,24 @@ export async function apiGetSearchResult<T>(params: { query: string }) {
         params,
     })
 }
+export type AlertItem = {
+    id: string
+    type: 'dtc' | 'maintenance'
+    level: 'critical' | 'warning' | 'info'
+    title: string
+    message: string
+    vehicleId: string
+    vehicleLabel?: string
+    createdAt: string
+    metadata?: Record<string, any>
+}
+
+export async function apiGetAlerts() {
+    return ApiService.fetchDataWithAxios<{
+        data: AlertItem[]
+        total: number
+    }>({
+        url: '/alerts',
+        method: 'get',
+    })
+}

@@ -181,53 +181,61 @@ export class UploadService {
     };
   }
 
-  private buildMaintenanceCsv(
-    records: MaintenanceRecord[],
-    vehicleId: string,
-    vehicleMake: string,
-    vehicleModel: string,
-    vehicleYear: number | string,
-    uploadId: string,
-  ): { csvContent: string; filename: string } {
-    const headers = [
-      'vehicleId',
-      'vehicleMake',
-      'vehicleModel',
-      'vehicleYear',
-      'service_date',
-      'service_type',
-      'mileage_at_service_km',
-      'cost',
-      'parts_replaced',
-      'shop',
-      'notes',
-      'next_due_km',
-      'next_due_date',
-    ];
-
-    const rows = records.map((r) =>
-      [
-        vehicleId,
-        vehicleMake,
-        vehicleModel,
-        vehicleYear,
-        new Date(r.service_date).toISOString().split('T')[0],
-        r.service_type,
-        r.mileage_at_service_km,
-        r.cost,
-        r.parts_replaced,
-        r.shop,
-        r.notes,
-        r.next_due_km,
-        new Date(r.next_due_date).toISOString().split('T')[0],
-      ].join(','),
-    );
-
-    return {
-      csvContent: [headers.join(','), ...rows].join('\n'),
-      filename: `maintenance_${vehicleId}_${vehicleMake}_${vehicleModel}_upload_${uploadId}.csv`,
-    };
+private formatDate(date?: Date | string | null): string {
+  if (!date) {
+    return '';
   }
+
+  return new Date(date).toISOString().split('T')[0];
+}
+
+private buildMaintenanceCsv(
+  records: MaintenanceRecord[],
+  vehicleId: string,
+  vehicleMake: string,
+  vehicleModel: string,
+  vehicleYear: number | string,
+  uploadId: string,
+): { csvContent: string; filename: string } {
+  const headers = [
+    'vehicleId',
+    'vehicleMake',
+    'vehicleModel',
+    'vehicleYear',
+    'service_date',
+    'service_type',
+    'mileage_at_service_km',
+    'cost',
+    'parts_replaced',
+    'shop',
+    'notes',
+    'next_due_km',
+    'next_due_date',
+  ];
+
+  const rows = records.map((r) =>
+    [
+      vehicleId,
+      vehicleMake,
+      vehicleModel,
+      vehicleYear,
+      this.formatDate(r.service_date),
+      r.service_type,
+      r.mileage_at_service_km,
+      r.cost ?? '',
+      r.parts_replaced ?? '',
+      r.shop ?? '',
+      r.notes ?? '',
+      r.next_due_km ?? '',
+      this.formatDate(r.next_due_date),
+    ].join(','),
+  );
+
+  return {
+    csvContent: [headers.join(','), ...rows].join('\n'),
+    filename: `maintenance_${vehicleId}_${vehicleMake}_${vehicleModel}_upload_${uploadId}.csv`,
+  };
+}
 
   private buildDtcCsv(
     entries: DtcEntry[],

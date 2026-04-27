@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Param,
   Body,
   UseGuards,
@@ -18,6 +19,8 @@ import { Request } from 'express';
 
 import { MaintenanceService } from './maintenance.service';
 import { CreateMaintenanceDto } from './dto/create-maintenance.dto';
+import { UpdateNextMaintenanceDto } from './dto/update-next-maintenance.dto';
+import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 
 @Controller('vehicles/:vehicleId/maintenance')
 @UseGuards(AuthGuard('jwt'))
@@ -56,12 +59,46 @@ export class MaintenanceController {
   @Get('analytics')
   getAnalytics(
     @Param('vehicleId') vehicleId: string,
-    @Req() req,
+    @Req() req: Request & { user: { id: string } },
   ) {
-    return this.service.getAnalytics(
+    return this.service.getAnalytics(vehicleId, req.user.id);
+  }
+
+  @Patch(':maintenanceId/next-maintenance')
+  updateNextMaintenance(
+    @Param('vehicleId') vehicleId: string,
+    @Param('maintenanceId') maintenanceId: string,
+    @Req() req: Request & { user: { id: string } },
+    @Body() dto: UpdateNextMaintenanceDto,
+  ) {
+    return this.service.updateNextMaintenance(
       vehicleId,
+      maintenanceId,
       req.user.id,
+      dto,
     );
   }
 
+  @Patch(':maintenanceId/appointment')
+  updateAppointment(
+    @Param('vehicleId') vehicleId: string,
+    @Param('maintenanceId') maintenanceId: string,
+    @Req() req: Request & { user: { id: string } },
+    @Body() dto: UpdateAppointmentDto,
+  ) {
+    return this.service.updateAppointment(
+      vehicleId,
+      maintenanceId,
+      req.user.id,
+      dto,
+    );
+  }
+
+  @Get('mechanics/:mechanicId/bookings')
+  getMechanicBookings(
+    @Param('mechanicId') mechanicId: string,
+    @Query('date') date: string,
+  ) {
+    return this.service.getMechanicBookings(mechanicId, date);
+  }
 }

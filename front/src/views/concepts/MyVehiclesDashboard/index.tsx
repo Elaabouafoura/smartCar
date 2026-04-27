@@ -76,7 +76,7 @@ const VehicleColumn = ({
             >
                 <Avatar
                     size={50}
-                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    className="cursor-pointer transition-opacity hover:opacity-80"
                     {...(row.photoUrl ? { src: row.photoUrl } : { icon: <TbCar /> })}
                 />
             </button>
@@ -107,7 +107,7 @@ const ActionColumn = ({
             <Tooltip title="View">
                 <button
                     type="button"
-                    className="text-xl cursor-pointer select-none font-semibold"
+                    className="cursor-pointer select-none text-xl font-semibold"
                     onClick={(e) => {
                         e.stopPropagation()
                         onView()
@@ -120,7 +120,7 @@ const ActionColumn = ({
             <Tooltip title="Edit">
                 <button
                     type="button"
-                    className="text-xl cursor-pointer select-none font-semibold"
+                    className="cursor-pointer select-none text-xl font-semibold"
                     onClick={(e) => {
                         e.stopPropagation()
                         onEdit()
@@ -133,7 +133,7 @@ const ActionColumn = ({
             <Tooltip title="Upload files">
                 <button
                     type="button"
-                    className="text-xl cursor-pointer select-none font-semibold"
+                    className="cursor-pointer select-none text-xl font-semibold"
                     onClick={(e) => {
                         e.stopPropagation()
                         onUpload()
@@ -154,9 +154,9 @@ const InfoItem = ({
     value: string | number
 }) => {
     return (
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-            <div className="text-sm text-gray-500 mb-1">{label}</div>
-            <div className="font-semibold break-words">{value}</div>
+        <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+            <div className="mb-1 text-sm text-gray-500">{label}</div>
+            <div className="break-words font-semibold">{value}</div>
         </div>
     )
 }
@@ -166,7 +166,7 @@ const MyVehiclesDashboard = () => {
 
     const [tableData, setTableData] = useState<TableQueries>({
         pageIndex: 1,
-        pageSize: 10,
+        pageSize: 5,
         sort: {
             order: '',
             key: '',
@@ -181,6 +181,16 @@ const MyVehiclesDashboard = () => {
     const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
     const [uploadVehicle, setUploadVehicle] =
         useState<VehicleListItem | null>(null)
+
+    const [uploadTableData, setUploadTableData] = useState<TableQueries>({
+        pageIndex: 1,
+        pageSize: 3,
+        sort: {
+            order: '',
+            key: '',
+        },
+        query: '',
+    })
 
     const { data, isLoading } = useSWR(
         ['/vehicles', tableData.pageIndex, tableData.pageSize],
@@ -197,15 +207,22 @@ const MyVehiclesDashboard = () => {
     )
 
     const { data: uploadData, isLoading: uploadsLoading } = useSWR(
-        uploadVehicle ? ['/uploads/vehicle', uploadVehicle.id] : null,
+        uploadVehicle
+            ? [
+                  '/uploads/vehicle',
+                  uploadVehicle.id,
+                  uploadTableData.pageIndex,
+                  uploadTableData.pageSize,
+              ]
+            : null,
         () =>
             apiGetUploadsByVehicle<
                 UploadPaginatedResponse,
                 { vehicleId: string; page: number; limit: number }
             >({
                 vehicleId: uploadVehicle!.id,
-                page: 1,
-                limit: 20,
+                page: uploadTableData.pageIndex as number,
+                limit: uploadTableData.pageSize as number,
             }),
         {
             revalidateOnFocus: false,
@@ -216,6 +233,9 @@ const MyVehiclesDashboard = () => {
 
     const vehicles = data?.data ?? []
     const total = data?.total ?? 0
+
+    const uploadItems = uploadData?.data ?? []
+    const uploadTotal = uploadData?.total ?? 0
 
     const handleView = (vehicle: VehicleListItem) => {
         setSelectedVehicle(vehicle)
@@ -229,12 +249,20 @@ const MyVehiclesDashboard = () => {
 
     const handleOpenUploads = (vehicle: VehicleListItem) => {
         setUploadVehicle(vehicle)
+        setUploadTableData((prev) => ({
+            ...prev,
+            pageIndex: 1,
+        }))
         setUploadDialogOpen(true)
     }
 
     const handleCloseUploads = () => {
         setUploadDialogOpen(false)
         setUploadVehicle(null)
+        setUploadTableData((prev) => ({
+            ...prev,
+            pageIndex: 1,
+        }))
     }
 
     const handleDownload = async (id: string, filename: string) => {
@@ -366,9 +394,22 @@ const MyVehiclesDashboard = () => {
         handleSetTableData(newTableData)
     }
 
+    const handleUploadPaginationChange = (page: number) => {
+        const newTableData = cloneDeep(uploadTableData)
+        newTableData.pageIndex = page
+        setUploadTableData(newTableData)
+    }
+
+    const handleUploadSelectChange = (value: number) => {
+        const newTableData = cloneDeep(uploadTableData)
+        newTableData.pageSize = Number(value)
+        newTableData.pageIndex = 1
+        setUploadTableData(newTableData)
+    }
+
     return (
         <Card>
-            <div className="flex items-center justify-between mb-4">
+            <div className="mb-4 flex items-center justify-between">
                 <h4>My Vehicles</h4>
 
                 <Button
@@ -410,7 +451,7 @@ const MyVehiclesDashboard = () => {
                         </div>
 
                         <Card>
-                            <div className="flex flex-col md:flex-row md:items-center gap-4">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-center">
                                 <button
                                     type="button"
                                     className="rounded-full"
@@ -419,7 +460,7 @@ const MyVehiclesDashboard = () => {
                                 >
                                     <Avatar
                                         size={72}
-                                        className="cursor-pointer hover:opacity-80 transition-opacity"
+                                        className="cursor-pointer transition-opacity hover:opacity-80"
                                         {...(selectedVehicle.photoUrl
                                             ? { src: selectedVehicle.photoUrl }
                                             : { icon: <TbCar /> })}
@@ -437,7 +478,7 @@ const MyVehiclesDashboard = () => {
                                 <div className="mb-2 text-sm text-gray-500">
                                     Health score
                                 </div>
-                                <div className="flex items-center gap-3 mb-2">
+                                <div className="mb-2 flex items-center gap-3">
                                     <span className="text-lg font-bold">
                                         {selectedVehicle.healthScore ?? 100}%
                                     </span>
@@ -449,7 +490,7 @@ const MyVehiclesDashboard = () => {
                             </div>
                         </Card>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                             <InfoItem label="Make" value={selectedVehicle.make || '-'} />
                             <InfoItem label="Model" value={selectedVehicle.model || '-'} />
                             <InfoItem label="VIN" value={selectedVehicle.vin || '-'} />
@@ -462,7 +503,6 @@ const MyVehiclesDashboard = () => {
                                 label="Mileage"
                                 value={`${selectedVehicle.currentMileageKm ?? 0} km`}
                             />
-                          
                             <InfoItem
                                 label="Updated At"
                                 value={
@@ -473,7 +513,7 @@ const MyVehiclesDashboard = () => {
                             />
                         </div>
 
-                        <div className="flex justify-end mt-4">
+                        <div className="mt-4 flex justify-end">
                             <Button
                                 variant="solid"
                                 icon={<TbPencil />}
@@ -500,7 +540,7 @@ const MyVehiclesDashboard = () => {
                     <div>
                         <h4>Uploaded files</h4>
                         {uploadVehicle && (
-                            <div className="text-sm text-gray-500 mt-1">
+                            <div className="mt-1 text-sm text-gray-500">
                                 {uploadVehicle.make} {uploadVehicle.model}
                                 {uploadVehicle.plateNumber
                                     ? ` - ${uploadVehicle.plateNumber}`
@@ -513,7 +553,7 @@ const MyVehiclesDashboard = () => {
                         <div className="text-sm text-gray-500">
                             Loading uploads...
                         </div>
-                    ) : !uploadData?.data?.length ? (
+                    ) : !uploadItems.length ? (
                         <Card>
                             <div className="text-sm text-gray-500">
                                 No uploaded files for this vehicle.
@@ -521,20 +561,19 @@ const MyVehiclesDashboard = () => {
                         </Card>
                     ) : (
                         <div className="flex flex-col gap-3">
-                            {uploadData.data.map((file) => (
+                            {uploadItems.map((file) => (
                                 <Card key={file.id}>
                                     <div className="flex items-center justify-between gap-4">
                                         <div className="min-w-0">
-                                            <div className="font-semibold break-all">
+                                            <div className="break-all font-semibold">
                                                 {file.filename}
                                             </div>
-                                            <div className="text-sm text-gray-500 mt-1">
+                                            <div className="mt-1 text-sm text-gray-500">
                                                 Status: {file.status}
                                             </div>
                                             <div className="text-sm text-gray-500">
                                                 Rows: {file.row_count ?? 0}
                                             </div>
-                                          
                                         </div>
 
                                         <Button
@@ -549,6 +588,22 @@ const MyVehiclesDashboard = () => {
                                     </div>
                                 </Card>
                             ))}
+
+                            <div className="pt-2">
+                                <DataTable
+                                    columns={[]}
+                                    data={[]}
+                                    loading={false}
+                                    noData={false}
+                                    pagingData={{
+                                        total: uploadTotal,
+                                        pageIndex: uploadTableData.pageIndex as number,
+                                        pageSize: uploadTableData.pageSize as number,
+                                    }}
+                                    onPaginationChange={handleUploadPaginationChange}
+                                    onSelectChange={handleUploadSelectChange}
+                                />
+                            </div>
                         </div>
                     )}
                 </div>

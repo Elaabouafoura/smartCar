@@ -81,13 +81,13 @@ const VehicleColumn = ({
                 <Avatar
                     shape="round"
                     size={60}
-                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                    className="cursor-pointer transition-opacity hover:opacity-80"
                     {...(row.photoUrl ? { src: row.photoUrl } : { icon: <TbCar /> })}
                 />
             </button>
 
             <div>
-                <div className="font-bold heading-text mb-1">
+                <div className="mb-1 font-bold heading-text">
                     {row.make} {row.model}
                 </div>
             </div>
@@ -107,7 +107,7 @@ const ActionColumn = ({
             <Tooltip title="View">
                 <button
                     type="button"
-                    className="text-xl cursor-pointer select-none font-semibold"
+                    className="cursor-pointer select-none text-xl font-semibold"
                     onClick={(e) => {
                         e.stopPropagation()
                         onView()
@@ -120,7 +120,7 @@ const ActionColumn = ({
             <Tooltip title="Delete">
                 <button
                     type="button"
-                    className="text-xl cursor-pointer select-none font-semibold"
+                    className="cursor-pointer select-none text-xl font-semibold"
                     onClick={(e) => {
                         e.stopPropagation()
                         onDelete()
@@ -141,9 +141,9 @@ const InfoItem = ({
     value: string | number
 }) => {
     return (
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-            <div className="text-sm text-gray-500 mb-1">{label}</div>
-            <div className="font-semibold break-words">{value}</div>
+        <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+            <div className="mb-1 text-sm text-gray-500">{label}</div>
+            <div className="break-words font-semibold">{value}</div>
         </div>
     )
 }
@@ -171,6 +171,16 @@ const VehicleDashboard = () => {
         query: '',
     })
 
+    const [uploadTableData, setUploadTableData] = useState<TableQueries>({
+        pageIndex: 1,
+        pageSize: 3,
+        sort: {
+            order: '',
+            key: '',
+        },
+        query: '',
+    })
+
     const [selectedVehicle, setSelectedVehicle] = useState<VehicleListItem[]>([])
 
     const { data, isLoading, mutate } = useSWR(
@@ -184,8 +194,20 @@ const VehicleDashboard = () => {
     )
 
     const { data: uploadData, isLoading: uploadsLoading } = useSWR(
-        uploadVehicle ? ['/uploads/vehicle', uploadVehicle.id] : null,
-        () => apiGetUploadsByVehicle(uploadVehicle!.id, 1, 20),
+        uploadVehicle
+            ? [
+                  '/uploads/vehicle',
+                  uploadVehicle.id,
+                  uploadTableData.pageIndex,
+                  uploadTableData.pageSize,
+              ]
+            : null,
+        () =>
+            apiGetUploadsByVehicle(
+                uploadVehicle!.id,
+                uploadTableData.pageIndex as number,
+                uploadTableData.pageSize as number,
+            ),
         {
             revalidateOnFocus: false,
             revalidateIfStale: false,
@@ -254,6 +276,16 @@ const VehicleDashboard = () => {
         return sortedVehicleList.slice(start, end)
     }, [sortedVehicleList, tableData.pageIndex, tableData.pageSize])
 
+    const uploadItems = uploadData?.data ?? []
+    const uploadTotal = uploadData?.total ?? 0
+    const uploadPage = uploadData?.page ?? (uploadTableData.pageIndex as number)
+    const uploadTotalPages =
+        uploadData?.totalPages ??
+        Math.max(
+            1,
+            Math.ceil(uploadTotal / Number(uploadTableData.pageSize || 1)),
+        )
+
     const handleCancel = () => {
         if (deleteLoading) return
         setDeleteConfirmationOpen(false)
@@ -276,12 +308,20 @@ const VehicleDashboard = () => {
 
     const handleOpenUploads = (vehicle: VehicleListItem) => {
         setUploadVehicle(vehicle)
+        setUploadTableData((prev) => ({
+            ...prev,
+            pageIndex: 1,
+        }))
         setUploadDialogOpen(true)
     }
 
     const handleCloseUploads = () => {
         setUploadDialogOpen(false)
         setUploadVehicle(null)
+        setUploadTableData((prev) => ({
+            ...prev,
+            pageIndex: 1,
+        }))
     }
 
     const handleDownload = async (id: string, filename: string) => {
@@ -540,6 +580,22 @@ const VehicleDashboard = () => {
         }
     }
 
+    const handleUploadPaginationChange = (page: number) => {
+        const newTableData = cloneDeep(uploadTableData)
+        newTableData.pageIndex = page
+        setUploadTableData(newTableData)
+    }
+
+    const handleUploadSelectChange = (
+        e: React.ChangeEvent<HTMLSelectElement>,
+    ) => {
+        const value = Number(e.target.value)
+        const newTableData = cloneDeep(uploadTableData)
+        newTableData.pageSize = value
+        newTableData.pageIndex = 1
+        setUploadTableData(newTableData)
+    }
+
     return (
         <Card>
             <VehicleListTableTools
@@ -587,7 +643,7 @@ const VehicleDashboard = () => {
                             >
                                 <Avatar
                                     size={70}
-                                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                                    className="cursor-pointer transition-opacity hover:opacity-80"
                                     {...(selectedDetailVehicle.photoUrl
                                         ? { src: selectedDetailVehicle.photoUrl }
                                         : { icon: <TbCar /> })}
@@ -599,18 +655,18 @@ const VehicleDashboard = () => {
                                     {selectedDetailVehicle.make}{' '}
                                     {selectedDetailVehicle.model}
                                 </h3>
-                                <div className="text-gray-500 text-sm">
+                                <div className="text-sm text-gray-500">
                                     Vehicle information
                                 </div>
                             </div>
                         </div>
 
                         <div>
-                            <div className="text-sm text-gray-500 mb-2">
+                            <div className="mb-2 text-sm text-gray-500">
                                 Health
                             </div>
 
-                            <div className="flex items-center gap-3 mb-2">
+                            <div className="mb-2 flex items-center gap-3">
                                 <span className="font-bold">
                                     {selectedDetailVehicle.healthScore ?? 100}%
                                 </span>
@@ -622,7 +678,7 @@ const VehicleDashboard = () => {
                             />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                             <InfoItem
                                 label="Make"
                                 value={selectedDetailVehicle.make || '-'}
@@ -647,7 +703,6 @@ const VehicleDashboard = () => {
                                 label="Mileage"
                                 value={`${selectedDetailVehicle.currentMileageKm ?? 0} km`}
                             />
-                            
                             <InfoItem
                                 label="Updated"
                                 value={
@@ -681,7 +736,7 @@ const VehicleDashboard = () => {
                     <div>
                         <h4>Uploaded files</h4>
                         {uploadVehicle && (
-                            <div className="text-sm text-gray-500 mt-1">
+                            <div className="mt-1 text-sm text-gray-500">
                                 {uploadVehicle.make} {uploadVehicle.model}
                                 {uploadVehicle.plateNumber
                                     ? ` - ${uploadVehicle.plateNumber}`
@@ -694,7 +749,7 @@ const VehicleDashboard = () => {
                         <div className="text-sm text-gray-500">
                             Loading uploads...
                         </div>
-                    ) : !uploadData?.data?.length ? (
+                    ) : !uploadItems.length ? (
                         <Card>
                             <div className="text-sm text-gray-500">
                                 No uploaded files for this vehicle.
@@ -702,20 +757,19 @@ const VehicleDashboard = () => {
                         </Card>
                     ) : (
                         <div className="flex flex-col gap-3">
-                            {uploadData.data.map((file) => (
+                            {uploadItems.map((file) => (
                                 <Card key={file.id}>
                                     <div className="flex items-center justify-between gap-4">
                                         <div className="min-w-0">
-                                            <div className="font-semibold break-all">
+                                            <div className="break-all font-semibold">
                                                 {file.filename}
                                             </div>
-                                            <div className="text-sm text-gray-500 mt-1">
+                                            <div className="mt-1 text-sm text-gray-500">
                                                 Status: {file.status}
                                             </div>
                                             <div className="text-sm text-gray-500">
                                                 Rows: {file.row_count ?? 0}
                                             </div>
-                                         
                                         </div>
 
                                         <Button
@@ -730,6 +784,52 @@ const VehicleDashboard = () => {
                                     </div>
                                 </Card>
                             ))}
+
+                            <div className="mt-2 flex flex-col gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700 md:flex-row md:items-center md:justify-between">
+                                <div className="text-sm text-gray-500">
+                                    Showing page {uploadPage} of {uploadTotalPages} • Total{' '}
+                                    {uploadTotal} file(s)
+                                </div>
+
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm text-gray-500">
+                                            Rows per page
+                                        </span>
+                                        <select
+                                            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none dark:border-gray-600 dark:bg-gray-800"
+                                            value={uploadTableData.pageSize as number}
+                                            onChange={handleUploadSelectChange}
+                                        >
+                                            <option value={5}>5</option>
+                                            <option value={10}>10</option>
+                                            <option value={20}>20</option>
+                                            <option value={50}>50</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            size="sm"
+                                            disabled={uploadPage <= 1}
+                                            onClick={() =>
+                                                handleUploadPaginationChange(uploadPage - 1)
+                                            }
+                                        >
+                                            Previous
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            disabled={uploadPage >= uploadTotalPages}
+                                            onClick={() =>
+                                                handleUploadPaginationChange(uploadPage + 1)
+                                            }
+                                        >
+                                            Next
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>

@@ -1,8 +1,9 @@
 import {
-  IsString,
+  IsDateString,
   IsNumber,
   IsOptional,
-  IsDateString,
+  IsString,
+  IsUUID,
 } from 'class-validator';
 
 export class CreateMaintenanceDto {
@@ -35,7 +36,19 @@ export class CreateMaintenanceDto {
   @IsNumber()
   next_due_km?: number;
 
- 
+  @IsOptional()
   @IsDateString()
-  next_due_date!: string;
+  next_due_date?: string;
+
+  @IsOptional()
+  @IsUUID()
+  mechanicId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  appointmentStart?: string;
+
+  @IsOptional()
+  @IsDateString()
+  appointmentEnd?: string;
 }

@@ -1,11 +1,11 @@
 import axios from 'axios'
 
 const AxiosBase = axios.create({
-  baseURL: 'http://localhost:3000/api/v1', // backend
+  baseURL: 'http://localhost:3000/api/v1', 
   timeout: 60000,
 })
 
-// 🔹 Intercepteur pour ajouter le token sauf pour les routes publiques
+
 AxiosBase.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken')
 

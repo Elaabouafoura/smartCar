@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
+import UpcomingSchedule from '../ProjectDashboard/components/UpcomingSchedule'
 import dayjs from 'dayjs'
 import Card from '@/components/ui/Card'
 import Loading from '@/components/shared/Loading'
@@ -16,12 +17,14 @@ import {
     TbCalendarEvent,
     TbCurrencyDollar,
     TbPlaylistX,
+    TbFileDownload,
 } from 'react-icons/tb'
 import {
     apiGetMyVehicles,
     apiGetVehicleDashboard,
     apiGetVehicleMaintenanceAnalytics,
     apiGetVehicleDtcAnalytics,
+    apiExportVehicleReport,
 } from '@/services/DashboardService'
 import { COLORS } from '@/constants/chart.constant'
 import { useThemeStore } from '@/store/themeStore'
@@ -93,8 +96,8 @@ type VehicleDashboardResponse = {
         }[]
     }
 }
-
 type MaintenanceRecordLite = {
+    id: string
     service_date?: string
     service_type?: string
     mileage_at_service_km?: number
@@ -104,7 +107,10 @@ type MaintenanceRecordLite = {
     notes?: string
     next_due_km?: number
     next_due_date?: string
-}
+    appointmentStart?: string
+    appointmentEnd?: string
+}  
+
 
 type MaintenanceAnalyticsResponse = {
     totalCost: number
@@ -196,6 +202,7 @@ const Dashboard = () => {
 
     const [dashboards, setDashboards] = useState<VehicleDashboardItem[]>([])
     const [loadingDashboards, setLoadingDashboards] = useState(false)
+    const [exportingId, setExportingId] = useState<string | null>(null)
     const [viewMode, setViewMode] = useState<Record<string, VehicleViewMode>>(
         {},
     )
@@ -228,19 +235,17 @@ const Dashboard = () => {
             try {
                 const results = await Promise.all(
                     vehicles.map(async (vehicle) => {
-                        const [dashboard, maintenance, dtc] = await Promise.all(
-                            [
-                                apiGetVehicleDashboard<VehicleDashboardResponse>(
-                                    vehicle.id,
-                                ),
-                                apiGetVehicleMaintenanceAnalytics<MaintenanceAnalyticsResponse>(
-                                    vehicle.id,
-                                ).catch(() => null),
-                                apiGetVehicleDtcAnalytics<DtcAnalyticsResponse>(
-                                    vehicle.id,
-                                ).catch(() => null),
-                            ],
-                        )
+                        const [dashboard, maintenance, dtc] = await Promise.all([
+                            apiGetVehicleDashboard<VehicleDashboardResponse>(
+                                vehicle.id,
+                            ),
+                            apiGetVehicleMaintenanceAnalytics<MaintenanceAnalyticsResponse>(
+                                vehicle.id,
+                            ).catch(() => null),
+                            apiGetVehicleDtcAnalytics<DtcAnalyticsResponse>(
+                                vehicle.id,
+                            ).catch(() => null),
+                        ])
 
                         return {
                             vehicle,
@@ -259,6 +264,39 @@ const Dashboard = () => {
 
         loadDashboards()
     }, [vehiclesResponse])
+
+    const handleExportReport = async (vehicle: VehicleItem) => {
+        try {
+            setExportingId(vehicle.id)
+
+            const response = await apiExportVehicleReport(vehicle.id)
+
+            const blob = new Blob([response], {
+                type: 'application/pdf',
+            })
+
+            const url = window.URL.createObjectURL(blob)
+            const link = document.createElement('a')
+
+            const safeName = `${vehicle.make || 'vehicle'}-${vehicle.model || ''}-${vehicle.plateNumber || vehicle.id}`
+                .replace(/\s+/g, '-')
+                .replace(/[^a-zA-Z0-9-_]/g, '')
+                .toLowerCase()
+
+            link.href = url
+            link.download = `${safeName}-report.pdf`
+
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+
+            window.URL.revokeObjectURL(url)
+        } catch (error) {
+            console.error('Export failed:', error)
+        } finally {
+            setExportingId(null)
+        }
+    }
 
     const isLoading = vehiclesLoading || loadingDashboards
     const formatTime = (value: string) => dayjs(value).format('HH:mm')
@@ -321,6 +359,18 @@ const Dashboard = () => {
                                                     : 'Aucune plaque'}
                                             </div>
                                         </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => handleExportReport(vehicle)}
+                                            disabled={exportingId === vehicle.id}
+                                            className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                            <TbFileDownload className="text-lg" />
+                                            {exportingId === vehicle.id
+                                                ? 'Export...'
+                                                : 'Export PDF'}
+                                        </button>
                                     </div>
 
                                     {currentView === 'sensor' ? (
@@ -698,9 +748,10 @@ const Dashboard = () => {
                                         </div>
                                     </div>
                                 ) : currentView === 'maintenance' ? (
-                                    <MaintenanceAnalyticsSection
-                                        maintenance={maintenance}
-                                    />
+                                   <MaintenanceAnalyticsSection
+    vehicleId={vehicle.id}
+    maintenance={maintenance}
+/>
                                 ) : (
                                     <DtcAnalyticsSection dtc={dtc} />
                                 )}
@@ -720,27 +771,27 @@ const VehicleQuickStats = ({
 }) => {
     return (
         <div className="rounded-3xl border border-gray-200 bg-white/70 dark:border-gray-700 dark:bg-gray-900/40">
-            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-0">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-0">
                 <SummarySegment
                     title="Max RPM"
                     value={`${Math.round(dashboard.summary.rpmMax).toLocaleString()} tr/min`}
                     icon={<TbGauge />}
                     iconClass="bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
-                    className="border-b border-r-0 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
+                    className="border-b border-r-0 border-gray-200 dark:border-gray-700 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l"
                 />
                 <SummarySegment
                     title="Max Speed"
                     value={`${dashboard.summary.speedMax.toFixed(1)} km/h`}
                     icon={<TbRoute />}
                     iconClass="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
-                    className="border-b md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
+                    className="border-b border-gray-200 dark:border-gray-700 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l"
                 />
                 <SummarySegment
                     title="Load"
                     value={`${dashboard.summary.totalReadings} lectures`}
                     icon={<TbEngine />}
                     iconClass="bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
-                    className="border-b border-r-0 md:border-b-0 md:ltr:border-r md:rtl:border-l border-gray-200 dark:border-gray-700"
+                    className="border-b border-r-0 border-gray-200 dark:border-gray-700 md:border-b-0 md:ltr:border-r md:rtl:border-l"
                 />
                 <SummarySegment
                     title="Temperature"
@@ -770,40 +821,47 @@ const MaintenanceQuickStats = ({
 
     return (
         <div className="rounded-3xl border border-gray-200 bg-white/70 dark:border-gray-700 dark:bg-gray-900/40">
-            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-0">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-0">
                 <SummarySegment
                     title="Total cost"
                     value={`${maintenance.totalCost.toFixed(2)} TND`}
                     icon={<TbCurrencyDollar />}
                     iconClass="bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
-                    className="border-b border-r-0 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
+                    className="border-b border-r-0 border-gray-200 dark:border-gray-700 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l"
                 />
                 <SummarySegment
                     title="Maintenances"
                     value={maintenance.totalRecords}
                     icon={<TbTool />}
                     iconClass="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
-                    className="border-b md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l border-gray-200 dark:border-gray-700"
+                    className="border-b border-gray-200 dark:border-gray-700 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l"
                 />
-                <SummarySegment
-                    title="Overdue"
-                    value={maintenance.overdueCount}
-                    icon={<TbAlertTriangle />}
-                    iconClass="bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
-                    className="border-b border-r-0 md:border-b-0 md:ltr:border-r md:rtl:border-l border-gray-200 dark:border-gray-700"
-                />
-                <SummarySegment
-                    title="Next due date"
-                    value={
-                        maintenance.nextMaintenance?.next_due_date
-                            ? dayjs(
-                                  maintenance.nextMaintenance.next_due_date,
-                              ).format('YYYY-MM-DD')
-                            : 'N/A'
-                    }
-                    icon={<TbCalendarEvent />}
-                    iconClass="bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
-                />
+            
+               <SummarySegment
+    title="Next due date"
+    value={
+        maintenance.nextMaintenance?.next_due_date
+            ? dayjs(maintenance.nextMaintenance.next_due_date).format(
+                  'YYYY-MM-DD',
+              )
+            : 'N/A'
+    }
+    icon={<TbCalendarEvent />}
+    iconClass="bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
+/>
+
+<SummarySegment
+    title="Appointment"
+    value={
+        maintenance.nextMaintenance?.appointmentStart
+            ? dayjs(maintenance.nextMaintenance.appointmentStart).format(
+                  'YYYY-MM-DD HH:mm',
+              )
+            : 'Non planifié'
+    }
+    icon={<TbCalendarEvent />}
+    iconClass="bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300"
+/>
             </div>
         </div>
     )
@@ -832,100 +890,45 @@ const DtcQuickStats = ({
               : 'System stable'
 
     return (
-        <div className="rounded-3xl border border-red-100 bg-gradient-to-br from-red-50 via-white to-orange-50 p-5 shadow-sm dark:border-red-900/30 dark:bg-gray-900">
-            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                    <h4 className="text-base font-semibold text-gray-900 dark:text-white">
-                        Diagnostic Trouble Codes
-                    </h4>
-                 
-                </div>
+        <div className="rounded-3xl border border-gray-200 bg-white/70 dark:border-gray-700 dark:bg-gray-900/40">
+            <div className="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div></div>
 
-                <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
-                    <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                    {alertLevel}
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {alertLevel}
+                    </div>
                 </div>
             </div>
 
-            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <DtcStatCard
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-0">
+                <SummarySegment
                     title="Total DTC"
                     value={dtc.summary.totalEntries}
-                    subtitle="Tous les codes détectés"
                     icon={<TbPlaylistX />}
-                    tone="blue"
+                    iconClass="bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+                    className="border-b border-r-0 border-gray-200 dark:border-gray-700 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l"
                 />
-                <DtcStatCard
+                <SummarySegment
                     title="MIL active"
                     value={dtc.summary.milActiveCount}
-                    subtitle="Voyant moteur actif"
                     icon={<TbEngine />}
-                    tone="red"
+                    iconClass="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300"
+                    className="border-b border-gray-200 dark:border-gray-700 md:border-b xl:border-b-0 xl:ltr:border-r xl:rtl:border-l"
                 />
-                <DtcStatCard
+                <SummarySegment
                     title="High severity"
                     value={dtc.summary.highSeverityCount}
-                    subtitle="Défauts critiques"
                     icon={<TbAlertTriangle />}
-                    tone="orange"
+                    iconClass="bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300"
+                    className="border-b border-r-0 border-gray-200 dark:border-gray-700 md:border-b-0 md:ltr:border-r md:rtl:border-l"
                 />
-                <DtcStatCard
+                <SummarySegment
                     title="Pending"
                     value={dtc.summary.pendingCount}
-                    subtitle="Défauts à confirmer"
                     icon={<TbTool />}
-                    tone="violet"
+                    iconClass="bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
                 />
-            </div>
-        </div>
-    )
-}
-
-type DtcStatCardProps = {
-    title: string
-    value: string | number
-    subtitle: string
-    icon: ReactNode
-    tone: 'blue' | 'red' | 'orange' | 'violet'
-}
-
-const DtcStatCard = ({
-    title,
-    value,
-    subtitle,
-    icon,
-    tone,
-}: DtcStatCardProps) => {
-    const toneMap = {
-        blue: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300',
-        red: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
-        orange: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
-        violet: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
-    }
-
-    return (
-        <div className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur dark:border-gray-800 dark:bg-gray-950/40">
-            <div className="flex items-start justify-between gap-3">
-                <div>
-                    <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                        {title}
-                    </div>
-                    <div className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-                        {value}
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                        {subtitle}
-                    </div>
-                </div>
-
-                <div
-                    className={classNames(
-                        'flex h-12 w-12 items-center justify-center rounded-2xl text-2xl',
-                        toneMap[tone],
-                    )}
-                >
-                    {icon}
-                </div>
             </div>
         </div>
     )
@@ -950,7 +953,7 @@ const SummarySegment = ({
         <div className={classNames('flex flex-col gap-2 px-6 py-5', className)}>
             <div
                 className={classNames(
-                    'flex items-center justify-center min-h-12 min-w-12 max-h-12 max-w-12 rounded-full text-2xl',
+                    'flex min-h-12 min-w-12 max-h-12 max-w-12 items-center justify-center rounded-full text-2xl',
                     iconClass,
                 )}
             >
@@ -965,68 +968,6 @@ const SummarySegment = ({
                 </h3>
             </div>
         </div>
-    )
-}
-
-const SeverityBadge = ({ severity }: { severity: string }) => {
-    const styles: Record<string, string> = {
-        low: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-800',
-        medium: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-800',
-        high: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/15 dark:text-red-300 dark:border-red-800',
-    }
-
-    return (
-        <span
-            className={classNames(
-                'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize',
-                styles[severity] ||
-                    'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600',
-            )}
-        >
-            {severity}
-        </span>
-    )
-}
-
-const StatusBadge = ({ status }: { status: string }) => {
-    const styles: Record<string, string> = {
-        pending: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/15 dark:text-yellow-300 dark:border-yellow-800',
-        confirmed: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-800',
-        permanent: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/15 dark:text-red-300 dark:border-red-800',
-        cleared: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600',
-    }
-
-    return (
-        <span
-            className={classNames(
-                'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize',
-                styles[status] ||
-                    'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600',
-            )}
-        >
-            {status}
-        </span>
-    )
-}
-
-const MilBadge = ({ active }: { active: boolean }) => {
-    return (
-        <span
-            className={classNames(
-                'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold',
-                active
-                    ? 'border-red-200 bg-red-100 text-red-700 dark:border-red-800 dark:bg-red-500/15 dark:text-red-300'
-                    : 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
-            )}
-        >
-            <span
-                className={classNames(
-                    'h-1.5 w-1.5 rounded-full',
-                    active ? 'bg-red-500' : 'bg-emerald-500',
-                )}
-            />
-            {active ? 'Active' : 'Off'}
-        </span>
     )
 }
 
@@ -1244,8 +1185,10 @@ const CombinedMonitorChart = ({
 }
 
 const MaintenanceAnalyticsSection = ({
+    vehicleId,
     maintenance,
 }: {
+    vehicleId: string
     maintenance: MaintenanceAnalyticsResponse | null
 }) => {
     if (!maintenance) {
@@ -1257,6 +1200,18 @@ const MaintenanceAnalyticsSection = ({
             </div>
         )
     }
+
+    const plannedDate = maintenance.nextMaintenance?.next_due_date
+        ? dayjs(maintenance.nextMaintenance.next_due_date)
+              .subtract(3, 'day')
+              .toDate()
+        : dayjs().toDate()
+
+    const suggestedLabel = maintenance.nextMaintenance?.service_type
+        ? `Maintenance - ${maintenance.nextMaintenance.service_type}`
+        : 'Maintenance reminder'
+
+    const maintenanceId = maintenance.nextMaintenance?.id
 
     return (
         <div className="grid grid-cols-12 gap-4">
@@ -1280,7 +1235,7 @@ const MaintenanceAnalyticsSection = ({
                             <Bar
                                 dataKey="cost"
                                 name="Cost"
-                                fill="#7dd3fc"
+                                fill="#bee9d3"
                                 radius={[8, 8, 0, 0]}
                             />
                         </BarChart>
@@ -1289,66 +1244,22 @@ const MaintenanceAnalyticsSection = ({
             </div>
 
             <div className="col-span-12 lg:col-span-4">
-                <ModernChartSection title="Next maintenance" height={320}>
-                    <div className="flex h-full flex-col justify-center gap-4">
-                        <div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                Service type
-                            </div>
-                            <div className="text-base font-semibold text-gray-900 dark:text-white">
-                                {maintenance.nextMaintenance?.service_type ||
-                                    'N/A'}
-                            </div>
-                        </div>
-
-                        <div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                Service date
-                            </div>
-                            <div className="text-base font-semibold text-gray-900 dark:text-white">
-                                {maintenance.nextMaintenance?.service_date
-                                    ? dayjs(
-                                          maintenance.nextMaintenance
-                                              .service_date,
-                                      ).format('YYYY-MM-DD')
-                                    : 'N/A'}
-                            </div>
-                        </div>
-
-                        <div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                Next due date
-                            </div>
-                            <div className="text-base font-semibold text-gray-900 dark:text-white">
-                                {maintenance.nextMaintenance?.next_due_date
-                                    ? dayjs(
-                                          maintenance.nextMaintenance
-                                              .next_due_date,
-                                      ).format('YYYY-MM-DD')
-                                    : 'N/A'}
-                            </div>
-                        </div>
-
-                        <div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                Next due km
-                            </div>
-                            <div className="text-base font-semibold text-gray-900 dark:text-white">
-                                {maintenance.nextMaintenance?.next_due_km ??
-                                    'N/A'}
-                            </div>
-                        </div>
-
-                        <div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                Overdue maintenances
-                            </div>
-                            <div className="text-base font-semibold text-red-600">
-                                {maintenance.overdueCount}
-                            </div>
-                        </div>
-                    </div>
-                </ModernChartSection>
+                {maintenanceId ? (
+                    <UpcomingSchedule
+                        vehicleId={vehicleId}
+                        maintenanceId={maintenanceId}
+                        defaultDate={plannedDate}
+                        title="Maintenance "
+                        suggestedLabel={suggestedLabel}
+                        onCreated={() => window.location.reload()}
+                    />
+                ) : (
+                    <Card>
+                        <p className="text-sm text-gray-500">
+                            Aucune maintenance à planifier.
+                        </p>
+                    </Card>
+                )}
             </div>
         </div>
     )
@@ -1389,25 +1300,25 @@ const DtcAnalyticsSection = ({
                                 >
                                     <stop
                                         offset="5%"
-                                        stopColor="#ef4444"
+                                        stopColor="#6366f1"
                                         stopOpacity={0.28}
                                     />
                                     <stop
                                         offset="95%"
-                                        stopColor="#ef4444"
+                                        stopColor="#6366f1"
                                         stopOpacity={0.03}
                                     />
                                 </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                             <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                            <YAxis tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                             <Tooltip />
                             <Legend />
                             <Area
                                 type="monotone"
                                 dataKey="count"
-                                stroke="#ef4444"
+                                stroke="#6366f1"
                                 fill="url(#dtcTimeline)"
                                 strokeWidth={2.5}
                                 name="DTC count"
@@ -1427,12 +1338,12 @@ const DtcAnalyticsSection = ({
                         <BarChart data={dtc.charts.severityChart}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                             <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                            <YAxis tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                             <Tooltip />
                             <Legend />
                             <Bar
                                 dataKey="value"
-                                fill="#f59e0b"
+                                fill="#FE964A"
                                 name="Count"
                                 radius={[10, 10, 0, 0]}
                             />
@@ -1451,12 +1362,12 @@ const DtcAnalyticsSection = ({
                         <BarChart data={dtc.charts.topCodes}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                             <XAxis dataKey="code" tick={{ fontSize: 12 }} />
-                            <YAxis tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                             <Tooltip />
                             <Legend />
                             <Bar
                                 dataKey="count"
-                                fill="#dc2626"
+                                fill="#7cd2fa"
                                 name="Occurrences"
                                 radius={[10, 10, 0, 0]}
                             />
@@ -1475,12 +1386,12 @@ const DtcAnalyticsSection = ({
                         <BarChart data={dtc.charts.statusChart}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                             <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                            <YAxis tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                             <Tooltip />
                             <Legend />
                             <Bar
                                 dataKey="value"
-                                fill="#6366f1"
+                                fill="#fbc13e"
                                 name="Count"
                                 radius={[10, 10, 0, 0]}
                             />
@@ -1488,10 +1399,8 @@ const DtcAnalyticsSection = ({
                     </ResponsiveContainer>
                 </ModernChartSection>
             </div>
-
-            
-    
-        </div>    )
+        </div>
+    )
 }
 
 type ModernChartSectionProps = {

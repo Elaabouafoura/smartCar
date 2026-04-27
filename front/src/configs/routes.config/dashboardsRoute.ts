@@ -50,6 +50,16 @@ const dashboardsRoute: Routes = [
             pageBackgroundType: 'plain',
         },
     },
+     {
+        key: 'dashboard.mechanics',
+        path: `${DASHBOARDS_PREFIX_PATH}/mechanics`,
+        component: lazy(() => import('@/views/dashboards/MechanicsDashboard')) as any,
+        authority: [USER,ADMIN],
+        meta: {
+            pageContainerType: 'contained',
+            pageBackgroundType: 'plain',
+        },
+    },
 ]
 
 export default dashboardsRoute

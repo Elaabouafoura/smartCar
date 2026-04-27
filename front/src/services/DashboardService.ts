@@ -314,3 +314,99 @@ export async function apiGetVehicleDtcAnalytics<T>(vehicleId: string) {
         method: 'get',
     })
 }
+
+
+
+
+export async function apiExportVehicleReport(vehicleId: string) {
+    return ApiService.fetchDataWithAxios<ArrayBuffer>({
+        url: `/vehicles/${vehicleId}/report/export`,
+        method: 'get',
+        responseType: 'arraybuffer',
+    })
+}
+
+
+
+export async function apiGetMechanics<T>() {
+    return ApiService.fetchDataWithAxios<T>({
+        url: '/mechanics',
+        method: 'get',
+    })
+}
+
+export async function apiGetMechanicBookings<T>(
+    vehicleId: string,
+    mechanicId: string,
+    date: string,
+) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/vehicles/${vehicleId}/maintenance/mechanics/${mechanicId}/bookings`,
+        method: 'get',
+        params: { date },
+    })
+}
+
+export async function apiUpdateMaintenanceAppointment<T>(
+    vehicleId: string,
+    maintenanceId: string,
+    data: {
+        mechanicId: string
+        appointmentStart: string
+        appointmentEnd: string
+    },
+) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/vehicles/${vehicleId}/maintenance/${maintenanceId}/appointment`,
+        method: 'patch',
+        data,
+    })
+}
+
+
+
+
+export async function apiGetAdminMechanics<T>() {
+    return ApiService.fetchDataWithAxios<T>({
+        url: '/mechanics',
+        method: 'get',
+    })
+}
+
+export async function apiCreateMechanic<T>(data: {
+    name: string
+    specialty?: string
+    phone?: string
+    location?: string
+    isActive?: boolean
+}) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: '/mechanics',
+        method: 'post',
+        data,
+    })
+}
+
+export async function apiUpdateMechanic<T>(
+    id: string,
+    data: {
+        name?: string
+        specialty?: string
+        phone?: string
+        location?: string
+        isActive?: boolean
+    },
+) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/mechanics/${id}`,
+        method: 'patch',
+        data,
+    })
+}
+
+export async function apiDeleteMechanic(id: string) {
+    return ApiService.fetchDataWithAxios({
+        url: `/mechanics/${id}`,
+        method: 'delete',
+    })
+}

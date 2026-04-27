@@ -13,6 +13,8 @@ import { Upload, UploadStatus } from 'src/upload/entities/upload.entity';
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { AlertsGateway } from 'src/alerts/alerts.gateway';
+import { AlertsRuleService } from 'src/alerts/alerts-rule.service';
 
 @Injectable()
 export class DtcService {
@@ -25,6 +27,9 @@ export class DtcService {
 
     @InjectRepository(Upload)
     private uploadRepo: Repository<Upload>,
+    private readonly alertsGateway: AlertsGateway,
+    private readonly alertsRuleService: AlertsRuleService,
+    
   ) {}
 
   private readonly REQUIRED_COLUMNS = [
@@ -194,109 +199,123 @@ export class DtcService {
     return this.dtcRepo.save(dtc);
   }
 
-  async upload(
-    vehicleId: string,
-    userId: string,
-    file: Express.Multer.File,
-  ) {
-    const vehicle = await this.checkOwnership(vehicleId, userId);
+async upload(
+  vehicleId: string,
+  userId: string,
+  file: Express.Multer.File,
+) {
+  const vehicle = await this.checkOwnership(vehicleId, userId)
 
-    if (!file) {
-      throw new BadRequestException('File required');
-    }
-
-    const uploadDir = path.join(process.cwd(), 'uploads');
-
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const safeFileName = `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`;
-    const filePath = path.join(uploadDir, safeFileName);
-
-    fs.writeFileSync(filePath, file.buffer);
-
-    const upload = this.uploadRepo.create({
-      vehicle,
-      filename: file.originalname,
-      status: UploadStatus.PROCESSING,
-      filePath,
-    });
-
-    await this.uploadRepo.save(upload);
-
-    let records: any[] = [];
-
-    try {
-      if (file.mimetype === 'application/json') {
-        records = JSON.parse(file.buffer.toString());
-      } else if (
-        file.mimetype === 'text/csv' ||
-        file.originalname.endsWith('.csv')
-      ) {
-        records = parse(file.buffer.toString(), {
-          columns: true,
-          skip_empty_lines: true,
-          trim: true,
-        });
-      } else {
-        throw new BadRequestException('Invalid file type');
-      }
-
-      if (!Array.isArray(records) || records.length === 0) {
-        throw new BadRequestException('Empty file');
-      }
-
-      this.validateColumnsAndValues(records);
-
-      const entities: DtcEntry[] = records.map((r, index) => {
-        this.validateRecord(r, index);
-
-        return this.dtcRepo.create({
-          dtc_code: r.dtc_code,
-          description: r.description,
-          severity: r.severity,
-          component_category: r.component_category,
-          status: r.status,
-          mil_active: r.mil_active === true || r.mil_active === 'true',
-          freeze_frame:
-            typeof r.freeze_frame === 'string'
-              ? JSON.parse(r.freeze_frame)
-              : r.freeze_frame,
-          timestamp: new Date(r.timestamp),
-          vehicle,
-          upload,
-        });
-      });
-
-      await this.dtcRepo.insert(entities);
-
-      upload.row_count = entities.length;
-      upload.status = UploadStatus.SUCCESS;
-      await this.uploadRepo.save(upload);
-
-      return {
-        total: records.length,
-        inserted: entities.length,
-        uploadId: upload.id,
-        downloadUrl: `/uploads/${upload.id}/download`,
-      };
-    } catch (error) {
-      upload.status = UploadStatus.FAILED;
-
-      if (error instanceof Error) {
-        upload.errors = {
-          message: error.message,
-          stack: error.stack,
-        };
-      } else {
-        upload.errors = { message: 'Unknown error' };
-      }
-
-      await this.uploadRepo.save(upload);
-      throw error;
-    }
+  if (!file) {
+    throw new BadRequestException('File required')
   }
+
+  const uploadDir = path.join(process.cwd(), 'uploads')
+
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true })
+  }
+
+  const safeFileName = `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`
+  const filePath = path.join(uploadDir, safeFileName)
+
+  fs.writeFileSync(filePath, file.buffer)
+
+  const upload = this.uploadRepo.create({
+    vehicle,
+    filename: file.originalname,
+    status: UploadStatus.PROCESSING,
+    filePath,
+  })
+
+  await this.uploadRepo.save(upload)
+
+  let records: any[] = []
+
+  try {
+    if (file.mimetype === 'application/json') {
+      records = JSON.parse(file.buffer.toString())
+    } else if (
+      file.mimetype === 'text/csv' ||
+      file.originalname.endsWith('.csv')
+    ) {
+      records = parse(file.buffer.toString(), {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      })
+    } else {
+      throw new BadRequestException('Invalid file type')
+    }
+
+    if (!Array.isArray(records) || records.length === 0) {
+      throw new BadRequestException('Empty file')
+    }
+
+    this.validateColumnsAndValues(records)
+
+    const entities: DtcEntry[] = records.map((r, index) => {
+      this.validateRecord(r, index)
+
+      return this.dtcRepo.create({
+        dtc_code: r.dtc_code,
+        description: r.description,
+        severity: r.severity,
+        component_category: r.component_category,
+        status: r.status,
+        mil_active: r.mil_active === true || r.mil_active === 'true',
+        freeze_frame:
+          typeof r.freeze_frame === 'string'
+            ? JSON.parse(r.freeze_frame)
+            : r.freeze_frame,
+        timestamp: new Date(r.timestamp),
+        vehicle,
+        upload,
+      })
+    })
+
+    const savedEntries = await this.dtcRepo.save(entities)
+
+    const realtimeNotifications = savedEntries
+      .map((entry) =>
+        this.alertsRuleService.buildDtcNotification(entry, vehicle),
+      )
+      .filter(Boolean)
+
+    if (realtimeNotifications.length > 0) {
+      this.alertsGateway.emitManyToUser(
+        userId,
+        realtimeNotifications as any[],
+      )
+    }
+
+    upload.row_count = savedEntries.length
+    upload.status = UploadStatus.SUCCESS
+    await this.uploadRepo.save(upload)
+
+    return {
+      total: records.length,
+      inserted: savedEntries.length,
+      uploadId: upload.id,
+      downloadUrl: `/uploads/${upload.id}/download`,
+      notificationsSent: realtimeNotifications.length,
+    }
+  } catch (error) {
+    upload.status = UploadStatus.FAILED
+
+    if (error instanceof Error) {
+      upload.errors = {
+        message: error.message,
+        stack: error.stack,
+      }
+    } else {
+      upload.errors = { message: 'Unknown error' }
+    }
+
+    await this.uploadRepo.save(upload)
+    throw error
+  }
+}
 
   async findAll(
     vehicleId: string,

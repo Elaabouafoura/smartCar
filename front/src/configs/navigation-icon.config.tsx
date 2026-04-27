@@ -95,6 +95,7 @@ import {
     PiCarDuotone,
     PiBusDuotone,
     PiTruckDuotone,
+    PiWrenchDuotone,
 } from 'react-icons/pi'
 import type { JSX } from 'react'
 
@@ -202,6 +203,7 @@ const navigationIcon: NavigationIcons = {
     sharedComponentDoc: <PiShareNetworkDuotone />,
     utilsDoc: <PiToolboxDuotone />,
     changeLog: <PiCodeDuotone />,
+    dashboardMechanics: <PiWrenchDuotone />,
 }
 
 export default navigationIcon

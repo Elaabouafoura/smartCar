@@ -7,6 +7,7 @@ interface LogoProps extends CommonProps {
     mode?: 'light' | 'dark'
     imgClass?: string
     logoWidth?: number | string
+    logoHeight?: number | string
 }
 
 const LOGO_SRC_PATH = '/img/logo/'
@@ -18,19 +19,29 @@ const Logo = (props: LogoProps) => {
         className,
         imgClass,
         style,
-        logoWidth = 'auto',
+        logoWidth = 180,
+        logoHeight = 100, 
     } = props
 
     return (
         <div
-            className={classNames('logo', className)}
+            className={classNames(
+                'logo flex items-center justify-center',
+                className,
+            )}
             style={{
+                width: '100%',
+                height: logoHeight,
                 ...style,
-                ...{ width: logoWidth },
             }}
         >
             <img
                 className={imgClass}
+                style={{
+                    width: logoWidth,
+                    height: logoHeight,
+                    objectFit: 'contain', // 🔥 évite déformation
+                }}
                 src={`${LOGO_SRC_PATH}logo-${mode}-${type}.png`}
                 alt={`${APP_NAME} logo`}
             />

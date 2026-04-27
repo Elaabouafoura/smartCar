@@ -2,14 +2,18 @@ import {
   Injectable,
   ForbiddenException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between } from 'typeorm';
+import { parse } from 'csv-parse/sync';
+
 import { MaintenanceRecord } from './entities/maintenance.entity';
 import { Vehicle } from '../vehicle/entities/vehicle.entity';
 import { CreateMaintenanceDto } from './dto/create-maintenance.dto';
-import { parse } from 'csv-parse/sync';
+import { UpdateNextMaintenanceDto } from './dto/update-next-maintenance.dto';
 import { Upload, UploadStatus } from 'src/upload/entities/upload.entity';
+import { Mechanic } from 'src/mechanic/entities/mechanic.entity';
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -25,6 +29,9 @@ export class MaintenanceService {
 
     @InjectRepository(Upload)
     private uploadRepo: Repository<Upload>,
+
+    @InjectRepository(Mechanic)
+    private mechanicRepo: Repository<Mechanic>,
   ) {}
 
   private readonly REQUIRED_COLUMNS = [
@@ -61,19 +68,13 @@ export class MaintenanceService {
   }
 
   private isValidDate(value: any): boolean {
-    if (this.isEmpty(value)) {
-      return false;
-    }
-
+    if (this.isEmpty(value)) return false;
     const date = new Date(value);
     return !isNaN(date.getTime());
   }
 
   private isValidNumber(value: any): boolean {
-    if (this.isEmpty(value)) {
-      return false;
-    }
-
+    if (this.isEmpty(value)) return false;
     return !isNaN(Number(value));
   }
 
@@ -103,16 +104,6 @@ export class MaintenanceService {
         `Colonnes non autorisées: ${extraColumns.join(', ')}`,
       );
     }
-
-    records.forEach((row, index) => {
-      this.REQUIRED_COLUMNS.forEach((col) => {
-        if (this.isEmpty(row[col])) {
-          throw new BadRequestException(
-            `Ligne ${index + 1}: "${col}" est obligatoire et ne doit pas être vide`,
-          );
-        }
-      });
-    });
   }
 
   private validateRecord(row: any, index: number) {
@@ -138,30 +129,7 @@ export class MaintenanceService {
     }
 
     if (!this.isValidNumber(row.cost)) {
-      throw new BadRequestException(
-        `Ligne ${index + 1}: "cost" invalide`,
-      );
-    }
-
-    if (
-      typeof row.parts_replaced !== 'string' ||
-      row.parts_replaced.trim() === ''
-    ) {
-      throw new BadRequestException(
-        `Ligne ${index + 1}: "parts_replaced" invalide`,
-      );
-    }
-
-    if (typeof row.shop !== 'string' || row.shop.trim() === '') {
-      throw new BadRequestException(
-        `Ligne ${index + 1}: "shop" invalide`,
-      );
-    }
-
-    if (typeof row.notes !== 'string' || row.notes.trim() === '') {
-      throw new BadRequestException(
-        `Ligne ${index + 1}: "notes" invalide`,
-      );
+      throw new BadRequestException(`Ligne ${index + 1}: "cost" invalide`);
     }
 
     if (!this.isValidNumber(row.next_due_km)) {
@@ -177,6 +145,35 @@ export class MaintenanceService {
     }
   }
 
+  async isMechanicAvailable(
+    mechanicId: string,
+    start: Date,
+    end: Date,
+    excludeMaintenanceId?: string,
+  ) {
+    if (end <= start) {
+      throw new BadRequestException(
+        'appointmentEnd doit être supérieur à appointmentStart',
+      );
+    }
+
+    const query = this.maintenanceRepo
+      .createQueryBuilder('maintenance')
+      .where('maintenance.mechanicId = :mechanicId', { mechanicId })
+      .andWhere('maintenance.appointmentStart < :end', { end })
+      .andWhere('maintenance.appointmentEnd > :start', { start });
+
+    if (excludeMaintenanceId) {
+      query.andWhere('maintenance.id != :excludeMaintenanceId', {
+        excludeMaintenanceId,
+      });
+    }
+
+    const conflict = await query.getOne();
+
+    return !conflict;
+  }
+
   async create(
     vehicleId: string,
     userId: string,
@@ -184,14 +181,66 @@ export class MaintenanceService {
   ) {
     const vehicle = await this.checkOwnership(vehicleId, userId);
 
+    let mechanic: Mechanic | null = null;
+
+    if (dto.mechanicId) {
+      if (!dto.appointmentStart || !dto.appointmentEnd) {
+        throw new BadRequestException(
+          'appointmentStart et appointmentEnd sont obligatoires avec mechanicId',
+        );
+      }
+
+      mechanic = await this.mechanicRepo.findOne({
+        where: { id: dto.mechanicId },
+      });
+
+      if (!mechanic) {
+        throw new NotFoundException('Mécanicien introuvable');
+      }
+
+      const available = await this.isMechanicAvailable(
+        dto.mechanicId,
+        new Date(dto.appointmentStart),
+        new Date(dto.appointmentEnd),
+      );
+
+      if (!available) {
+        throw new BadRequestException(
+          'Ce mécanicien est déjà occupé à cette date/heure',
+        );
+      }
+    }
+
     const record = this.maintenanceRepo.create({
-      ...dto,
-      service_date: new Date(dto.service_date),
-      next_due_date: new Date(dto.next_due_date),
-      mileage_at_service_km: Number(dto.mileage_at_service_km),
-      cost: Number(dto.cost),
-      next_due_km: Number(dto.next_due_km),
       vehicle,
+
+      // ✅ correction importante
+      mechanic: mechanic ?? undefined,
+      mechanicId: dto.mechanicId ?? undefined,
+
+      service_date: new Date(dto.service_date),
+      service_type: dto.service_type.trim(),
+      mileage_at_service_km: Number(dto.mileage_at_service_km),
+
+      cost: dto.cost !== undefined ? Number(dto.cost) : undefined,
+      parts_replaced: dto.parts_replaced?.trim(),
+      shop: dto.shop?.trim(),
+      notes: dto.notes?.trim(),
+
+      next_due_km:
+        dto.next_due_km !== undefined ? Number(dto.next_due_km) : undefined,
+
+      next_due_date: dto.next_due_date
+        ? new Date(dto.next_due_date)
+        : undefined,
+
+      appointmentStart: dto.appointmentStart
+        ? new Date(dto.appointmentStart)
+        : undefined,
+
+      appointmentEnd: dto.appointmentEnd
+        ? new Date(dto.appointmentEnd)
+        : undefined,
     });
 
     return this.maintenanceRepo.save(record);
@@ -260,9 +309,9 @@ export class MaintenanceService {
           service_type: r.service_type.trim(),
           mileage_at_service_km: Number(r.mileage_at_service_km),
           cost: Number(r.cost),
-          parts_replaced: r.parts_replaced.trim(),
-          shop: r.shop.trim(),
-          notes: r.notes.trim(),
+          parts_replaced: r.parts_replaced?.trim(),
+          shop: r.shop?.trim(),
+          notes: r.notes?.trim(),
           next_due_km: Number(r.next_due_km),
           next_due_date: new Date(r.next_due_date),
           vehicle,
@@ -299,6 +348,116 @@ export class MaintenanceService {
     }
   }
 
+  async updateNextMaintenance(
+    vehicleId: string,
+    maintenanceId: string,
+    userId: string,
+    dto: UpdateNextMaintenanceDto,
+  ) {
+    await this.checkOwnership(vehicleId, userId);
+
+    const record = await this.maintenanceRepo.findOne({
+      where: {
+        id: maintenanceId,
+        vehicle: { id: vehicleId },
+      },
+      relations: ['vehicle'],
+    });
+
+    if (!record) {
+      throw new NotFoundException('Maintenance introuvable');
+    }
+
+    if (dto.next_due_km !== undefined) {
+      record.next_due_km = Number(dto.next_due_km);
+    }
+
+    if (dto.next_due_date !== undefined) {
+      record.next_due_date = new Date(dto.next_due_date);
+    }
+
+    return this.maintenanceRepo.save(record);
+  }
+
+  async updateAppointment(
+    vehicleId: string,
+    maintenanceId: string,
+    userId: string,
+    dto: {
+      mechanicId?: string;
+      appointmentStart?: string;
+      appointmentEnd?: string;
+    },
+  ) {
+    await this.checkOwnership(vehicleId, userId);
+
+    const record = await this.maintenanceRepo.findOne({
+      where: {
+        id: maintenanceId,
+        vehicle: { id: vehicleId },
+      },
+      relations: ['vehicle', 'mechanic'],
+    });
+
+    if (!record) {
+      throw new NotFoundException('Maintenance introuvable');
+    }
+
+    if (!dto.mechanicId || !dto.appointmentStart || !dto.appointmentEnd) {
+      throw new BadRequestException(
+        'mechanicId, appointmentStart et appointmentEnd sont obligatoires',
+      );
+    }
+
+    const mechanic = await this.mechanicRepo.findOne({
+      where: { id: dto.mechanicId },
+    });
+
+    if (!mechanic) {
+      throw new NotFoundException('Mécanicien introuvable');
+    }
+
+    const start = new Date(dto.appointmentStart);
+    const end = new Date(dto.appointmentEnd);
+
+    const available = await this.isMechanicAvailable(
+      dto.mechanicId,
+      start,
+      end,
+      maintenanceId,
+    );
+
+    if (!available) {
+      throw new BadRequestException(
+        'Ce mécanicien est déjà occupé à cette date/heure',
+      );
+    }
+
+    record.mechanic = mechanic;
+    record.mechanicId = dto.mechanicId;
+    record.appointmentStart = start;
+    record.appointmentEnd = end;
+
+    return this.maintenanceRepo.save(record);
+  }
+
+  async getMechanicBookings(mechanicId: string, date: string) {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(date);
+    end.setHours(23, 59, 59, 999);
+
+    return this.maintenanceRepo.find({
+      where: {
+        mechanicId,
+        appointmentStart: Between(start, end),
+      },
+      relations: ['vehicle', 'mechanic'],
+      order: { appointmentStart: 'ASC' },
+    });
+  }
+
   async findAll(
     vehicleId: string,
     userId: string,
@@ -309,6 +468,7 @@ export class MaintenanceService {
 
     const [data, total] = await this.maintenanceRepo.findAndCount({
       where: { vehicle: { id: vehicleId } },
+      relations: ['mechanic'],
       order: { service_date: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -322,61 +482,58 @@ export class MaintenanceService {
     };
   }
 
-
   async getAnalytics(vehicleId: string, userId: string) {
-  await this.checkOwnership(vehicleId, userId);
+    await this.checkOwnership(vehicleId, userId);
 
-  const records = await this.maintenanceRepo.find({
-    where: { vehicle: { id: vehicleId } },
-    order: { service_date: 'ASC' },
-  });
+    const records = await this.maintenanceRepo.find({
+      where: { vehicle: { id: vehicleId } },
+      relations: ['mechanic'],
+      order: { service_date: 'ASC' },
+    });
 
-  
-  const totalCost = records.reduce(
-    (sum, r) => sum + Number(r.cost || 0),
-    0,
-  );
+    const totalCost = records.reduce(
+      (sum, r) => sum + Number(r.cost || 0),
+      0,
+    );
 
+    const costPerMonth: Record<string, number> = {};
 
-  const costPerMonth: Record<string, number> = {};
+    records.forEach((r) => {
+      const date = new Date(r.service_date);
+      const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
 
-  records.forEach((r) => {
-    const date = new Date(r.service_date);
-    const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
+      if (!costPerMonth[key]) {
+        costPerMonth[key] = 0;
+      }
 
-    if (!costPerMonth[key]) {
-      costPerMonth[key] = 0;
-    }
+      costPerMonth[key] += Number(r.cost || 0);
+    });
 
-    costPerMonth[key] += Number(r.cost || 0);
-  });
-
-  const costChart = Object.entries(costPerMonth).map(
-    ([month, cost]) => ({
+    const costChart = Object.entries(costPerMonth).map(([month, cost]) => ({
       month,
       cost,
-    }),
-  );
+    }));
 
-  const nextMaintenance = records
-    .filter((r) => r.next_due_date)
-    .sort(
-      (a, b) =>
-        new Date(a.next_due_date).getTime() -
-        new Date(b.next_due_date).getTime(),
-    )[0];
+    const now = new Date();
 
-  const now = new Date();
-  const overdue = records.filter(
-    (r) => r.next_due_date && new Date(r.next_due_date) < now,
-  );
+    const nextMaintenance = records
+      .filter((r) => r.next_due_date && new Date(r.next_due_date) >= now)
+      .sort(
+        (a, b) =>
+          new Date(a.next_due_date!).getTime() -
+          new Date(b.next_due_date!).getTime(),
+      )[0];
 
-  return {
-    totalCost,
-    totalRecords: records.length,
-    costChart,
-    nextMaintenance,
-    overdueCount: overdue.length,
-  };
-}
+    const overdue = records.filter(
+      (r) => r.next_due_date && new Date(r.next_due_date) < now,
+    );
+
+    return {
+      totalCost,
+      totalRecords: records.length,
+      costChart,
+      nextMaintenance,
+      overdueCount: overdue.length,
+    };
+  }
 }
